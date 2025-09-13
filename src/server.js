@@ -1,26 +1,36 @@
+// server.js
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
+const http = require('http');
+const app = require('./app');
 const connectDB = require('./config/db');
-const authRoutes = require('./routes/auth.route');
-
-const app = express();
-connectDB();
-
-app.use(cors());
-app.use(express.json());
-
-// Global rate limiter (light)
-const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 120
-});
-app.use(limiter);
-
-app.use('/api/auth', authRoutes);
-
-app.get('/', (req, res) => res.send('OTP Auth API is running'));
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+async function startServer() {
+  try {
+    // DB connect first
+    await connectDB();
+
+    // Create HTTP server
+    const server = http.createServer(app);
+
+    server.listen(PORT, () => {
+      console.log(`✅ Server running on port ${PORT}`);
+    });
+
+    // Graceful shutdown
+    process.on('SIGINT', () => {
+      console.log('SIGINT received. Closing server...');
+      server.close(() => process.exit(0));
+    });
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM received. Closing server...');
+      server.close(() => process.exit(0));
+    });
+  } catch (err) {
+    console.error('❌ Failed to start server:', err);
+    process.exit(1);
+  }
+}
+
+startServer();

@@ -45,7 +45,9 @@ exports.sendOtp = async (req, res) => {
     }
 
     // Send OTP SMS
-    // await sendSmsOtp(normalizedPhone, otp);
+    await sendSmsOtp(normalizedPhone, otp);
+
+    console.log(`OTP for ${normalizedPhone}: ${otp}`); // For testing, log OTP to console
 
     return res.json({ message: 'OTP sent', otp: otp }); // include OTP in response for testing (remove in production)
   } catch (err) {
