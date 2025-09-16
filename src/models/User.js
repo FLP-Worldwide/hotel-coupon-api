@@ -13,6 +13,6 @@ const userSchema = new mongoose.Schema({
 });
 
 // Indexes
-userSchema.index({ phone: 1 }, { unique: true });
+// userSchema.index({ phone: 1 }, { unique: true });
 
 module.exports = mongoose.model('User', userSchema);
