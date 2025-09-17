@@ -125,26 +125,33 @@ exports.updateCoupon = async (req, res) => {
 /** Delete coupon */
 exports.deleteCoupon = async (req, res) => {
     try {
-        const deleter = req.admin;
-        if (!deleter) return res.status(401).json({ message: 'Unauthorized' });
-
-        const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
-
-        const coupon = await Coupon.findById(id);
-        if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
-
-        if (deleter.role === 'hotel' && String(coupon.createdBy) !== String(deleter._id)) {
-            return res.status(403).json({ message: 'Forbidden' });
-        }
-
-        await coupon.remove();
-        return res.json({ message: 'Coupon deleted' });
+      const deleter = req.admin;
+      if (!deleter) return res.status(401).json({ message: 'Unauthorized' });
+  
+      const { id } = req.params;
+      if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
+  
+      // Build filter: always match id; if deleter is hotel, require createdBy
+      const filter = { _id: id };
+      if (deleter.role === 'hotel') filter.createdBy = deleter._id;
+  
+      const result = await Coupon.deleteOne(filter);
+  
+      if (result.deletedCount === 0) {
+        // Could be not found, or forbidden (hotel tried to delete other's coupon)
+        // Check existence to provide better message
+        const exists = await Coupon.exists({ _id: id });
+        if (!exists) return res.status(404).json({ message: 'Coupon not found' });
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+  
+      return res.json({ message: 'Coupon deleted' });
     } catch (err) {
-        console.error('deleteCoupon', err);
-        return res.status(500).json({ message: 'Internal server error' });
+      console.error('deleteCoupon', err);
+      return res.status(500).json({ message: 'Internal server error' });
     }
-};
+  };
+  
 
 /**
  * Validate & compute discount for a coupon code

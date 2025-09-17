@@ -17,18 +17,52 @@ function buildLocation(coords) {
  * - req.admin must be set by adminAuth middleware
  * - hotel role users create hotels for themselves; ownerName defaults to admin.name
  */
+// inside your controller file (e.g. controllers/hotelController.js)
+function tryParseJSONField(val) {
+  if (!val) return val;
+  if (typeof val !== 'string') return val;
+  try {
+    return JSON.parse(val);
+  } catch (e) {
+    // not JSON — return the original string
+    return val;
+  }
+}
+
 exports.createHotel = async (req, res) => {
   try {
     const creator = req.admin;
     if (!creator) return res.status(401).json({ message: 'Unauthorized' });
 
+    // parse fields that might be JSON strings when sent via multipart/form-data
+    // (this handles address, contact, location, amenities, existingImages, etc.)
+    const rawBody = req.body || {};
+    const parsedBody = {
+      name: rawBody.name,
+      description: rawBody.description,
+      address: tryParseJSONField(rawBody.address) || {},
+      contact: tryParseJSONField(rawBody.contact) || {},
+      location: tryParseJSONField(rawBody.location) || {},
+      amenities: tryParseJSONField(rawBody.amenities) || [],
+      images: req.files && req.files.length ? req.files.map(f => f.filename) : (tryParseJSONField(rawBody.images) || []),
+      ownerName: rawBody.ownerName,
+      status: rawBody.status,
+      existingImages: tryParseJSONField(rawBody.existingImages) || []
+    };
+
+    // now destructure from parsedBody (safe: contact is object if provided)
     const {
       name, description, address = {}, contact = {},
       location = {}, amenities = [], images = [], ownerName
-    } = req.body;
+    } = parsedBody;
 
+    // server-side validation
     if (!name) return res.status(400).json({ message: 'Hotel name is required' });
-    if (!contact.phone) return res.status(400).json({ message: 'Contact phone is required' });
+
+    // ensure contact is an object and phone is present
+    if (!contact || !contact.phone) {
+      return res.status(400).json({ message: 'Contact phone is required' });
+    }
 
     const loc = buildLocation(location.coordinates);
 
@@ -54,6 +88,7 @@ exports.createHotel = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error', error: err.message });
   }
 };
+
 
 /**
  * Get a single hotel by id
@@ -151,18 +186,113 @@ exports.updateHotel = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: you cannot update this hotel' });
     }
 
-    // allowed updates (whitelist)
+    // Parse possible JSON-string fields (multipart/form-data sends JSON as strings)
+    const rawBody = req.body || {};
+    const parsedBody = {
+      name: rawBody.name,
+      description: rawBody.description,
+      address: tryParseJSONField(rawBody.address),
+      contact: tryParseJSONField(rawBody.contact),
+      location: tryParseJSONField(rawBody.location),
+      amenities: tryParseJSONField(rawBody.amenities),
+      existingImages: tryParseJSONField(rawBody.existingImages), // array of urls or filenames client wants to keep
+      ownerName: rawBody.ownerName,
+      status: rawBody.status,
+    };
+
+    // Allowed update keys (whitelist)
     const allowed = ['name','description','address','contact','amenities','images','status','ownerName'];
-    allowed.forEach(field => {
-      if (req.body[field] !== undefined) hotel[field] = req.body[field];
+
+    // Apply simple fields (but for address/contact/etc we merge carefully)
+    // 1) Name/description/status/ownerName
+    ['name','description','status','ownerName'].forEach(field => {
+      if (parsedBody[field] !== undefined) hotel[field] = parsedBody[field];
     });
 
-    // location special handling
-    if (req.body.location && Array.isArray(req.body.location.coordinates)) {
-      const loc = buildLocation(req.body.location.coordinates);
-      if (loc) hotel.location = loc;
+    // 2) Address (merge)
+    if (parsedBody.address !== undefined) {
+      // if address is a string or object; tryParseJSONField already handled JSON strings
+      hotel.address = typeof parsedBody.address === 'object' && parsedBody.address !== null
+        ? { ...hotel.address, ...parsedBody.address }
+        : parsedBody.address; // fallback: replace
     }
 
+    // 3) Contact (merge)
+    if (parsedBody.contact !== undefined) {
+      const incomingContact = typeof parsedBody.contact === 'object' && parsedBody.contact !== null
+        ? parsedBody.contact
+        : parsedBody.contact; // if it's a string, leave it (but ideally it's parsed)
+      hotel.contact = { ...(hotel.contact || {}), ...(incomingContact || {}) };
+      // Validate phone if contact was provided and now missing
+      if (parsedBody.contact && !hotel.contact.phone) {
+        return res.status(400).json({ message: 'Contact phone is required' });
+      }
+    }
+
+    // If client didn't provide contact but hotel has no phone at all -> require phone
+    if (!parsedBody.contact && (!hotel.contact || !hotel.contact.phone)) {
+      // if there is no phone on existing record, block updates that would leave it missing
+      return res.status(400).json({ message: 'Contact phone is required (existing record missing phone)' });
+    }
+
+    // 4) Amenities
+    if (parsedBody.amenities !== undefined) {
+      // ensure array
+      hotel.amenities = Array.isArray(parsedBody.amenities)
+        ? parsedBody.amenities
+        : (typeof parsedBody.amenities === 'string' ? tryParseJSONField(parsedBody.amenities) : parsedBody.amenities);
+      if (!Array.isArray(hotel.amenities)) hotel.amenities = [];
+    }
+
+    // 5) Location: support { coordinates: [lng, lat] } or coordinates array string
+    if (parsedBody.location !== undefined) {
+      let coords = null;
+      if (Array.isArray(parsedBody.location.coordinates)) {
+        coords = parsedBody.location.coordinates;
+      } else if (Array.isArray(parsedBody.location)) {
+        coords = parsedBody.location;
+      } else if (typeof parsedBody.location === 'string') {
+        // try parse stringified coordinates or object
+        const locParsed = tryParseJSONField(parsedBody.location);
+        if (locParsed && Array.isArray(locParsed.coordinates)) coords = locParsed.coordinates;
+        else if (Array.isArray(locParsed)) coords = locParsed;
+      }
+      if (coords && Array.isArray(coords)) {
+        const loc = buildLocation(coords);
+        if (loc) hotel.location = loc;
+      }
+    }
+
+    // 6) Images: combine existingImages from body (URLs/filenames client wants to keep) + newly uploaded files in req.files
+    // multer will populate req.files depending on your middleware (array/single). We'll support both.
+    const uploadedFiles = (req.files && Array.isArray(req.files)) ? req.files : (req.file ? [req.file] : []);
+    const uploadedFilenames = uploadedFiles.map(f => f.filename).filter(Boolean);
+
+    // existingImages expected to be array of urls or filenames client wants to keep
+    const keepExisting = Array.isArray(parsedBody.existingImages) ? parsedBody.existingImages : [];
+
+    // If parsedBody.images is provided as JSON array (legacy), prefer that as explicit set
+    let finalImages = null;
+    if (parsedBody.images !== undefined) {
+      // parsedBody.images might be array or string; try parse
+      const imgVal = tryParseJSONField(parsedBody.images);
+      if (Array.isArray(imgVal)) finalImages = imgVal;
+    }
+
+    if (finalImages === null) {
+      // otherwise assemble: kept existing + new uploaded files
+      finalImages = [...(keepExisting || []), ...(uploadedFilenames || [])];
+    }
+
+    // If client explicitly provided empty existingImages and no new files, we'll clear images
+    if (Array.isArray(parsedBody.existingImages) && parsedBody.existingImages.length === 0 && uploadedFilenames.length === 0 && parsedBody.images === undefined) {
+      // explicit intent to remove all existing images
+      hotel.images = [];
+    } else if (finalImages) {
+      hotel.images = finalImages;
+    }
+
+    // Save
     await hotel.save();
 
     return res.json({ message: 'Hotel updated', hotel });

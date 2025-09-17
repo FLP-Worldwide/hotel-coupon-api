@@ -2,28 +2,35 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser'); // <<< add this
 
 const app = express();
 
-// Middlewares
-app.use(cors());
-app.use(express.json()); // parse JSON
-app.use(express.urlencoded({ extended: true })); // parse URL-encoded bodies (form posts)
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
+app.use(cors({
+  origin: CLIENT_ORIGIN,
+  credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','Accept','X-Requested-With'],
+}));
 
-// Serve uploads statically
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Body parsing
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Global rate limiter
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 120
-});
+// Cookie parser MUST be before your routes so req.cookies is available
+app.use(cookieParser());
+
+// Static uploads
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Rate limiter
+const limiter = rateLimit({ windowMs: 60*1000, max: 120 });
 app.use(limiter);
 
-// Mount routes
+// Routes
 app.use('/api', require('./routes/index.route'));
 
-// Health check / root
+// Health check
 app.get('/', (req, res) => res.send('API is running 🚀'));
-
 module.exports = app;

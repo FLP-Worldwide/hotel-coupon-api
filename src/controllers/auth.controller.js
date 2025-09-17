@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Otp = require('../models/Otp');
-const { sendSmsOtp } = require('../utils/sms');
 const { createAccessToken, createRefreshToken, verifyRefreshToken } = require('../utils/jwt');
 
 

@@ -29,7 +29,7 @@ const couponSchema = new mongoose.Schema({
     applicableHotels: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Hotel' }], // empty = all hotels
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true }, // admin or hotel user
     status: { type: String, enum: ['active', 'inactive', 'expired'], default: 'active' },
-
+    price: { type: Number },
     createdAt: { type: Date, default: Date.now }
 });
 
