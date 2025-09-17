@@ -11,11 +11,19 @@ const {
 function setRefreshCookie(res, token) {
   const days = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS || '7', 10);
   const maxAge = Number.isFinite(days) ? days * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
-  res.cookie('refreshToken', token, {
+  // res.cookie('refreshToken', token, {
+  //   httpOnly: true,
+  //   secure: process.env.NODE_ENV === 'production',
+  //   sameSite: process.env.REFRESH_COOKIE_SAMESITE || 'lax',
+  //   path: process.env.REFRESH_COOKIE_PATH || '/api/admin',
+  //   maxAge,
+  // });
+
+  res.cookie("refreshToken", token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.REFRESH_COOKIE_SAMESITE || 'lax',
-    path: process.env.REFRESH_COOKIE_PATH || '/api/auth',
+    secure: false,          // allow localhost
+    sameSite: "none",       // allow cross-site requests (different ports)
+    path: "/api/admin",
     maxAge,
   });
 }
@@ -95,6 +103,7 @@ exports.login = async (req, res) => {
 
 // Refresh - read refresh cookie, verify, rotate, return new access token
 exports.refresh = async (req, res) => {
+  console.log('Refresh token request received',req.cookies);
   try {
     const token = req.cookies?.refreshToken;
     if (!token) return res.status(401).json({ message: 'No refresh token' });
