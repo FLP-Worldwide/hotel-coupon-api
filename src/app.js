@@ -6,15 +6,14 @@ const cookieParser = require('cookie-parser'); // <<< add this
 
 const app = express();
 
-// const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
-// app.use(cors({
-//   origin: CLIENT_ORIGIN,
-//   credentials: true,
-//   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-//   allowedHeaders: ['Content-Type','Authorization','Accept','X-Requested-With'],
-// }));
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
+app.use(cors({
+  origin: CLIENT_ORIGIN,
+  credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','Accept','X-Requested-With'],
+}));
 
-// Allow CORS for all origins
 app.use(cors());
 
 // Body parsing
