@@ -40,6 +40,7 @@ exports.createHotel = async (req, res) => {
     const parsedBody = {
       name: rawBody.name,
       description: rawBody.description,
+      price : rawBody.price,
       address: tryParseJSONField(rawBody.address) || {},
       contact: tryParseJSONField(rawBody.contact) || {},
       location: tryParseJSONField(rawBody.location) || {},
@@ -52,7 +53,7 @@ exports.createHotel = async (req, res) => {
 
     // now destructure from parsedBody (safe: contact is object if provided)
     const {
-      name, description, address = {}, contact = {},
+      name, description,price, address = {}, contact = {},
       location = {}, amenities = [], images = [], ownerName
     } = parsedBody;
 
@@ -72,6 +73,7 @@ exports.createHotel = async (req, res) => {
     const hotel = await Hotel.create({
       name,
       description,
+      price,
       address,
       contact,
       location: loc,
@@ -191,6 +193,7 @@ exports.updateHotel = async (req, res) => {
     const parsedBody = {
       name: rawBody.name,
       description: rawBody.description,
+      price : rawBody.price,
       address: tryParseJSONField(rawBody.address),
       contact: tryParseJSONField(rawBody.contact),
       location: tryParseJSONField(rawBody.location),
@@ -205,7 +208,7 @@ exports.updateHotel = async (req, res) => {
 
     // Apply simple fields (but for address/contact/etc we merge carefully)
     // 1) Name/description/status/ownerName
-    ['name','description','status','ownerName'].forEach(field => {
+    ['name','description','price','status','ownerName'].forEach(field => {
       if (parsedBody[field] !== undefined) hotel[field] = parsedBody[field];
     });
 
@@ -297,7 +300,6 @@ exports.updateHotel = async (req, res) => {
 
     return res.json({ message: 'Hotel updated', hotel });
   } catch (err) {
-    console.error('updateHotel error', err);
     return res.status(500).json({ message: 'Internal server error', error: err.message });
   }
 };

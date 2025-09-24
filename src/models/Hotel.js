@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 
 const hotelSchema = new mongoose.Schema({
     name: { type: String, required: true },                // Hotel name
-    description: { type: String },                         // Short description
+    description: { type: String },
+    price: { type: Number, required: true },                         // Short description
     address: {
         street: { type: String },
         city: { type: String, required: true },
