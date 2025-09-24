@@ -2,6 +2,7 @@
 const Hotel = require('../models/Hotel');
 const Admin = require('../models/Admin'); // to fetch owner info if needed
 const mongoose = require('mongoose');
+const Coupon = require('../models/Coupon');
 
 /**
  * Helper: build location object if coords provided
@@ -96,15 +97,33 @@ exports.createHotel = async (req, res) => {
  * Get a single hotel by id
  * - public or protected depending on router; here we just return hotel if found
  */
+
 exports.getHotel = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid hotel id' });
 
+    // Fetch hotel
     const hotel = await Hotel.findById(id).populate('createdBy', 'email username name role');
     if (!hotel) return res.status(404).json({ message: 'Hotel not found' });
 
-    return res.json({ hotel });
+    // Find coupons applicable to this hotel (or global)
+    const now = new Date();
+    const coupons = await Coupon.find({
+      status: 'active',
+      validFrom: { $lte: now },
+      validTo: { $gte: now },
+      $or: [
+        { applicableHotels: new mongoose.Types.ObjectId(id) },          // specific to this hotel
+        { applicableHotels: { $exists: true, $size: 0 } },          // explicit empty array = global
+        { applicableHotels: { $exists: false } }                    // field missing = treat as global
+      ]
+    })
+    .select('code title description discountType discountValue minOrderValue maxDiscount validFrom validTo usageLimit perUserLimit') // only send needed fields
+    .sort({ validTo: 1 }) // soonest expiring first
+    .lean();
+
+    return res.json({ success: true, hotel, coupons });
   } catch (err) {
     console.error('getHotel error', err);
     return res.status(500).json({ message: 'Internal server error' });
