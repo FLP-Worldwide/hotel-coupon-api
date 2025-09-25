@@ -184,11 +184,10 @@ exports.getProfile = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   try {
     const user = req.user; // from authMiddleware
-    const { name, avatar, phone } = req.body;
+    const { name, email } = req.body;
 
     if (name !== undefined) user.name = name;
-    if (avatar !== undefined) user.avatar = avatar;
-    if (phone !== undefined) user.phone = phone;
+    if (email !== undefined) user.email = email;
 
     await user.save();
 
@@ -199,7 +198,6 @@ exports.updateProfile = async (req, res) => {
         email: user.email,
         phone: user.phone,
         name: user.name,
-        avatar: user.avatar,
         isVerified: user.isVerified
       }
     });

@@ -11,6 +11,7 @@ const bookingRoutes = require('./booking.route');
 const dashboardRoutes = require('./dashboard.route');
 const userRoutes = require('./user.route');
 const paymentRoutes = require('./payment');
+const agentRroutes = require('./agent.routes');
 
 
 // Mount them under base paths
@@ -24,5 +25,6 @@ router.use("/admin/bookings", bookingRoutes);
 router.use('/admin/dashboard', dashboardRoutes);
 router.use('/admin/users', userRoutes);
 router.use('/phonepe', paymentRoutes);
+router.use('/admin/agents', agentRroutes);
 
 module.exports = router;
