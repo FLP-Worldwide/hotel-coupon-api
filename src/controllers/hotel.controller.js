@@ -119,7 +119,7 @@ exports.getHotel = async (req, res) => {
         { applicableHotels: { $exists: false } }                    // field missing = treat as global
       ]
     })
-    .select('code title description discountType discountValue minOrderValue maxDiscount validFrom validTo usageLimit perUserLimit') // only send needed fields
+    .select('code title price description discountType discountValue minOrderValue maxDiscount validFrom validTo usageLimit perUserLimit') // only send needed fields
     .sort({ validTo: 1 }) // soonest expiring first
     .lean();
 
