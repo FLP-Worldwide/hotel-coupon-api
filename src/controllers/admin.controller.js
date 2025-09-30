@@ -41,11 +41,9 @@ exports.register = async (req, res) => {
     const { email, password, name, username } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'email and password required' });
 
-    const exists = await Admin.findOne({
-      $or: [{ email: email.toLowerCase() }, { username }]
-    });
-    if (exists) return res.status(409).json({ message: 'Admin with email or username already exists' });
-
+    const exists = await Admin.findOne({ email: email.toLowerCase() });
+    if (exists) return res.status(400).json({ error: "Admin already exists" });
+    
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const admin = await Admin.create({ email: email.toLowerCase(), username, passwordHash, name });
     return res.status(201).json({ message: 'Admin created', admin: { id: admin._id, email: admin.email } });
@@ -59,27 +57,25 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: 'email and password required' });
+    if (!email || !password)
+      return res.status(400).json({ message: 'Email and password required' });
 
-    // lookup by email or username
-    const lookup = email.includes('@') ? { email: email.toLowerCase() } : { username: email };
-    const admin = await Admin.findOne({
-      $or: [{ email: lookup.email }, { username: lookup.username }]
-    });
-
+    // lookup by email only
+    const admin = await Admin.findOne({ email: email.toLowerCase() });
     if (!admin) return res.status(401).json({ message: 'Invalid credentials' });
 
+    // compare password
     const ok = await bcrypt.compare(password, admin.passwordHash);
     if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
 
-    // payload: keep minimal data. "sub" is subject (user id).
+    // payload for token
     const payload = { sub: admin._id.toString(), role: admin.role, type: 'admin' };
 
     // create tokens
     const accessToken = createAccessToken(payload);
     const refreshToken = createRefreshToken(payload);
 
-    // set refresh token as HttpOnly cookie (recommended)
+    // set refresh token as HttpOnly cookie
     setRefreshCookie(res, refreshToken);
 
     return res.json({
@@ -89,7 +85,6 @@ exports.login = async (req, res) => {
         admin: {
           id: admin._id,
           email: admin.email,
-          username: admin.username,
           name: admin.name,
           role: admin.role,
         },
@@ -100,6 +95,7 @@ exports.login = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
 
 // Refresh - read refresh cookie, verify, rotate, return new access token
 exports.refresh = async (req, res) => {

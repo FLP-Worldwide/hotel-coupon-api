@@ -17,7 +17,6 @@ module.exports = async (req, res, next) => {
     } catch (e) {
       return res.status(401).json({ message: 'Invalid or expired token' });
     }
-
     // ensure token is admin type (optional)
     if (payload.type !== 'admin') {
       return res.status(403).json({ message: 'Forbidden: admin tokens only' });
@@ -28,6 +27,7 @@ module.exports = async (req, res, next) => {
 
     req.admin = admin;
     req.tokenPayload = payload;
+    req.role = payload.role; // 'admin', 'hotel', 'agent'
     next();
   } catch (err) {
     console.error(err);

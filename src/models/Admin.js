@@ -1,13 +1,11 @@
-// models/Admin.js
+ // models/Admin.js
 const mongoose = require('mongoose');
 
 const adminSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, index: true },
-//   username: { type: String, required: true, unique: true, index: true },
   passwordHash: { type: String, required: true },
   name: { type: String },
-  role: { type: String, enum: ['admin','hotel'], default: 'hotel' }, // <-- two roles
-  createdAt: { type: Date, default: Date.now }
-});
+  role: { type: String, enum: ['admin', 'hotel', 'agent'], default: 'hotel' }, // <-- two roles
+},{timestamps: true});
 
 module.exports = mongoose.model('Admin', adminSchema);

@@ -3,6 +3,10 @@ const Hotel = require('../models/Hotel');
 const Admin = require('../models/Admin'); // to fetch owner info if needed
 const mongoose = require('mongoose');
 const Coupon = require('../models/Coupon');
+const bcrypt = require('bcryptjs');
+const { phoneToPasswordRaw } = require('../utils/helper');
+const SALT_ROUNDS = 10;
+
 
 /**
  * Helper: build location object if coords provided
@@ -31,47 +35,75 @@ function tryParseJSONField(val) {
 }
 
 exports.createHotel = async (req, res) => {
+  let hotel; // define upfront for rollback
   try {
     const creator = req.admin;
-    if (!creator) return res.status(401).json({ message: 'Unauthorized' });
+    if (!creator) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
 
-    // parse fields that might be JSON strings when sent via multipart/form-data
-    // (this handles address, contact, location, amenities, existingImages, etc.)
     const rawBody = req.body || {};
     const parsedBody = {
       name: rawBody.name,
       description: rawBody.description,
-      price : rawBody.price,
+      price: rawBody.price,
       address: tryParseJSONField(rawBody.address) || {},
       contact: tryParseJSONField(rawBody.contact) || {},
       location: tryParseJSONField(rawBody.location) || {},
       amenities: tryParseJSONField(rawBody.amenities) || [],
-      images: req.files && req.files.length ? req.files.map(f => f.filename) : (tryParseJSONField(rawBody.images) || []),
+      images:
+        req.files && req.files.length
+          ? req.files.map((f) => f.filename)
+          : tryParseJSONField(rawBody.images) || [],
       ownerName: rawBody.ownerName,
       status: rawBody.status,
-      existingImages: tryParseJSONField(rawBody.existingImages) || []
+      existingImages: tryParseJSONField(rawBody.existingImages) || [],
     };
 
-    // now destructure from parsedBody (safe: contact is object if provided)
     const {
-      name, description,price, address = {}, contact = {},
-      location = {}, amenities = [], images = [], ownerName
+      name,
+      description,
+      price,
+      address = {},
+      contact = {},
+      location = {},
+      amenities = [],
+      images = [],
+      ownerName,
     } = parsedBody;
 
-    // server-side validation
-    if (!name) return res.status(400).json({ message: 'Hotel name is required' });
+    if (!name) {
+      return res.status(400).json({ message: "Hotel name is required" });
+    }
 
-    // ensure contact is an object and phone is present
     if (!contact || !contact.phone) {
-      return res.status(400).json({ message: 'Contact phone is required' });
+      return res
+        .status(400)
+        .json({ message: "Contact phone is required" });
     }
 
     const loc = buildLocation(location.coordinates);
 
-    // Use provided ownerName or fallback to admin's name
-    const finalOwnerName = ownerName || creator.name || `${creator.username || creator.email}`;
+    const finalOwnerName =
+      ownerName || creator.name || creator.username || creator.email;
 
-    const hotel = await Hotel.create({
+      // generate agent password from phone
+    const rawPassword = phoneToPasswordRaw(contact.phone);
+    console.log(rawPassword);
+    const passwordHash = await bcrypt.hash(rawPassword, SALT_ROUNDS);
+
+    const admin = new Admin({
+      email: contact.email.toLowerCase(),
+      passwordHash,
+      name,
+      role: "hotel",
+    });
+
+    await admin.save();
+
+    // create hotel
+    hotel = await Hotel.create({
+      admin: admin._id,
       name,
       description,
       price,
@@ -82,13 +114,37 @@ exports.createHotel = async (req, res) => {
       images: Array.isArray(images) ? images : [],
       createdBy: creator._id,
       ownerName: finalOwnerName,
-      status: 'active'
+      status: "active",
     });
 
-    return res.status(201).json({ message: 'Hotel created', hotel });
+    
+
+    return res
+      .status(201)
+      .json({ message: "Hotel created", hotel });
   } catch (err) {
-    console.error('createHotel error', err);
-    return res.status(500).json({ message: 'Internal server error', error: err.message });
+    console.error("createHotel error", err);
+
+    // 🟢 Handle duplicate key error for admin email
+    if (err.code === 11000 && err.keyPattern?.email) {
+      return res
+        .status(400)
+        .json({ message: "Admin with this email already exists" });
+    }
+
+    // rollback hotel if created
+    if (hotel && hotel._id) {
+      try {
+        await Hotel.findByIdAndDelete(hotel._id);
+      } catch (rollbackErr) {
+        console.error("Hotel rollback failed", rollbackErr);
+      }
+    }
+
+    return res.status(500).json({
+      message: "Internal server error",
+      error: err.message,
+    });
   }
 };
 
@@ -119,9 +175,9 @@ exports.getHotel = async (req, res) => {
         { applicableHotels: { $exists: false } }                    // field missing = treat as global
       ]
     })
-    .select('code title price description discountType discountValue minOrderValue maxDiscount validFrom validTo usageLimit perUserLimit') // only send needed fields
-    .sort({ validTo: 1 }) // soonest expiring first
-    .lean();
+      .select('code title price description discountType discountValue minOrderValue maxDiscount validFrom validTo usageLimit perUserLimit') // only send needed fields
+      .sort({ validTo: 1 }) // soonest expiring first
+      .lean();
 
     return res.json({ success: true, hotel, coupons });
   } catch (err) {
@@ -129,6 +185,7 @@ exports.getHotel = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
 
 /**
  * List hotels with pagination, filters and optional geo-near
@@ -149,6 +206,64 @@ exports.listHotels = async (req, res) => {
     if (q.state) filter['address.state'] = q.state;
     if (q.status) filter.status = q.status;
     if (q.createdBy && mongoose.isValidObjectId(q.createdBy)) filter.createdBy = q.createdBy;
+    if (q.amenities) {
+      const arr = String(q.amenities).split(',').map(s => s.trim()).filter(Boolean);
+      if (arr.length) filter.amenities = { $all: arr };
+    }
+
+    // geo-near (optional)
+    if (q.nearLng && q.nearLat) {
+      const lng = Number(q.nearLng);
+      const lat = Number(q.nearLat);
+      const radius = Number(q.nearRadius || 5000); // default 5km
+      filter.location = {
+        $nearSphere: {
+          $geometry: { type: 'Point', coordinates: [lng, lat] },
+          $maxDistance: radius
+        }
+      };
+    }
+
+    const [total, hotels] = await Promise.all([
+      Hotel.countDocuments(filter),
+      Hotel.find(filter)
+        .populate('createdBy', 'username name email role')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+    ]);
+
+    return res.json({
+      meta: { total, page, limit, pages: Math.ceil(total / limit) || 1 },
+      hotels
+    });
+  } catch (err) {
+    console.error('listHotels error', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+
+
+exports.listHotelsAdmin = async (req, res) => {
+  try {
+    const q = req.query || {};
+    const page = Math.max(1, parseInt(q.page, 10) || 1);
+    const limit = Math.min(100, parseInt(q.limit, 10) || 20);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    // ✅ Role based filter
+    if (req.role === 'hotel') {
+      filter.admin = req.admin._id; // sirf apne hotels
+
+    }
+    // agar role 'admin' hai -> koi filter nahi, sab hotels aayenge
+
+    if (q.city) filter['address.city'] = q.city;
+    if (q.state) filter['address.state'] = q.state;
+    if (q.status) filter.status = q.status;
+
     if (q.amenities) {
       const arr = String(q.amenities).split(',').map(s => s.trim()).filter(Boolean);
       if (arr.length) filter.amenities = { $all: arr };
@@ -212,7 +327,7 @@ exports.updateHotel = async (req, res) => {
     const parsedBody = {
       name: rawBody.name,
       description: rawBody.description,
-      price : rawBody.price,
+      price: rawBody.price,
       address: tryParseJSONField(rawBody.address),
       contact: tryParseJSONField(rawBody.contact),
       location: tryParseJSONField(rawBody.location),
@@ -223,11 +338,11 @@ exports.updateHotel = async (req, res) => {
     };
 
     // Allowed update keys (whitelist)
-    const allowed = ['name','description','address','contact','amenities','images','status','ownerName'];
+    const allowed = ['name', 'description', 'address', 'contact', 'amenities', 'images', 'status', 'ownerName'];
 
     // Apply simple fields (but for address/contact/etc we merge carefully)
     // 1) Name/description/status/ownerName
-    ['name','description','price','status','ownerName'].forEach(field => {
+    ['name', 'description', 'price', 'status', 'ownerName'].forEach(field => {
       if (parsedBody[field] !== undefined) hotel[field] = parsedBody[field];
     });
 
