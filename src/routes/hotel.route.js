@@ -7,7 +7,7 @@ const upload = require('../middlewares/upload');
 
 // Public listing & get (optional: change to protected as needed)
 router.get('/', hotelCtrl.listHotels);
-router.get('/admin',adminAuth, hotelCtrl.listHotelsAdmin);
+router.get('/admin', adminAuth, hotelCtrl.listHotelsAdmin);
 router.get('/:id', hotelCtrl.getHotel);
 
 // Protected hotel management (admin or hotel role)

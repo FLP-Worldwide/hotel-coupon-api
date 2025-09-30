@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 
 const agentSchema = new mongoose.Schema({
     name: { type: String, required: true },
+    adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin'},
     email: { type: String, required: true, unique: true, lowercase: true, index: true },
     address: { type: String },
     code: { type: String, required: true, unique: true },

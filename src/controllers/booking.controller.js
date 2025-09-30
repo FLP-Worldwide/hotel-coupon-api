@@ -170,7 +170,7 @@ exports.createBooking = async (req, res) => {
     // optional: find agent by referral code
     let agentDoc = null;
     if (rfercode) {
-      agentDoc = await Agent.findOne({ code: rfercode }).select('_id code name').lean();
+      agentDoc = await Agent.findOne({ code: rfercode }).select('_id code name adminId').lean();
       if (!agentDoc) {
         // If you want to reject invalid referral code, uncomment next line:
         // return res.status(400).json({ message: 'Invalid referral code' });
@@ -278,7 +278,7 @@ exports.createBooking = async (req, res) => {
       };
 
       if (agentDoc) {
-        bookingData.agent = new mongoose.Types.ObjectId(String(agentDoc._id));
+        bookingData.agent = new mongoose.Types.ObjectId(String(agentDoc.adminId));
         bookingData.rfercode = agentDoc.code || rfercode;
       } else if (rfercode) {
         bookingData.rfercode = rfercode;
@@ -367,6 +367,11 @@ exports.getHotelBookings = async (req, res) => {
       }
 
       bookingFilter.hotel = { $in: hotelIds };
+    } else if (req.role === 'agent') {
+      // if agent, restrict to their bookings only
+
+      bookingFilter.agent = { $in: req.admin._id };
+
     }
 
     // (Optional) support query filters from req.query, e.g., status, from/to dates, hotelId, userId, etc.
