@@ -23,10 +23,10 @@ jobs:
 
       - name: 🚀 Deploy to Server
         run: |
-          DIR="/var/www/backend"           # server directory
+          DIR="/var/www/api.hotel.booksduniya.in/hotel-coupon-api"           # server directory
           BRANCH="main"                    # branch to deploy
           ENV_FILE=".env"                  # environment file
-          PM2_PROCESS="backend"            # PM2 process name
+          PM2_PROCESS="api.hotel.booksduniya"            # PM2 process name
           ENTRY_FILE="src/server.js"       # Node.js entry file
 
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no root@${{ secrets.SSH_HOST }} "
