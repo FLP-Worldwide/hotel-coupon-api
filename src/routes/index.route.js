@@ -22,6 +22,7 @@ router.use('/hotels', hotelRoutes);
 router.use('/admin/coupons', couponRoutes);
 router.use('/coupons', couponRoutes);
 router.use("/admin/bookings", bookingRoutes);
+router.use('/bookings', bookingRoutes);
 router.use('/admin/dashboard', dashboardRoutes);
 router.use('/admin/users', userRoutes);
 router.use('/phonepe', paymentRoutes);

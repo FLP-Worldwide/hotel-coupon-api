@@ -77,8 +77,6 @@ exports.initializePayment = async(req,res) => {
       paymentFlow:{type:'PG_CHECKOUT'}
     };
 
-    console.log("order payload sent: ",orderPayload);
-
     const orderResponse = await axios.post(CREATE_ORDER_URL, orderPayload, {
       headers: {
         accept: 'application/json',
@@ -116,12 +114,12 @@ exports.initializePayment = async(req,res) => {
 }
 
 exports.paymentStatus =  async (req, res) => {
-  try {
+  // try {
     const {transactionId} = req.query;
     const authToken = await getAccessToken();
 
     const response = await axios.get(
-      `${STATUS_URL}?merchantOrderId=${transactionId}`,
+      `${STATUS_URL}/${transactionId}/status`,
       {
         headers: {
           accept: 'application/json',
@@ -129,17 +127,18 @@ exports.paymentStatus =  async (req, res) => {
         },
       },
     );
+    console.log("Payment status query:",response);
 
     const paymentStatus = response.data.paymentStatus; // e.g., SUCCESS, FAILURE
     res.json({success: true, paymentStatus}); // Return JSON instead of redirect
-  } catch (error) {
-    console.error('Status Error:', error.response?.data || error.message);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: 'Status check failed',
-        error: error.response?.data || error.message,
-      });
-  }
+  // } catch (error) {
+  //   console.error('Status Error:', error.response?.data || error.message);
+  //   res
+  //     .status(500)
+  //     .json({
+  //       success: false,
+  //       message: 'Status check failed',
+  //       error: error.response?.data || error.message,
+  //     });
+  // }
 }

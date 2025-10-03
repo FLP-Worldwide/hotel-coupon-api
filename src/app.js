@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser'); // <<< add this
-
+var morgan = require('morgan')
 const app = express();
 
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
@@ -13,7 +13,7 @@ app.use(cors({
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization','Accept','X-Requested-With'],
 }));
-
+app.use(morgan('dev'))
 // Body parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
