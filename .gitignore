@@ -1,1 +1,19 @@
-/node_modules
+# Node
+node_modules/
+npm-debug.log
+.env
+
+# Build
+dist/
+build/
+
+# Uploads
+uploads/
+
+# Logs
+logs/
+*.log
+
+# PM2 logs
+.pids
+.pm2
