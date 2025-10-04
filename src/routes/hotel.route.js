@@ -9,6 +9,7 @@ const upload = require('../middlewares/upload');
 router.get('/', hotelCtrl.listHotels);
 router.get('/admin', adminAuth, hotelCtrl.listHotelsAdmin);
 router.get('/:id', hotelCtrl.getHotel);
+router.get('/search/:query', hotelCtrl.searchHotels);
 
 // Protected hotel management (admin or hotel role)
 router.post('/', adminAuth, upload.array('images', 10), hotelCtrl.createHotel);

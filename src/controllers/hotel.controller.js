@@ -87,7 +87,7 @@ exports.createHotel = async (req, res) => {
     const finalOwnerName =
       ownerName || creator.name || creator.username || creator.email;
 
-      // generate agent password from phone
+    // generate agent password from phone
     const rawPassword = phoneToPasswordRaw(contact.phone);
     console.log(rawPassword);
     const passwordHash = await bcrypt.hash(rawPassword, SALT_ROUNDS);
@@ -117,7 +117,7 @@ exports.createHotel = async (req, res) => {
       status: "active",
     });
 
-    
+
 
     return res
       .status(201)
@@ -242,6 +242,44 @@ exports.listHotels = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+// search hotels by name or description
+
+exports.searchHotels = async (req, res) => {
+  try {
+    const { query } = req.params;
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      return res.status(400).json({ message: 'Search query is required' });
+    }
+    const q = req.query || {};
+    const page = Math.max(1, parseInt(q.page, 10) || 1);
+    const limit = Math.min(100, parseInt(q.limit, 10) || 20);
+    const skip = (page - 1) * limit;
+    const searchRegex = new RegExp(query.trim(), 'i'); // case-insensitive
+    const filter = {
+      $or: [
+        { name: searchRegex },
+        { description: searchRegex }
+      ]
+    };
+    const [total, hotels] = await Promise.all([
+      Hotel.countDocuments(filter),
+      Hotel.find(filter)
+        .populate('createdBy', 'username name email role')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+    ]);
+    return res.json({
+      meta: { total, page, limit, pages: Math.ceil(total / limit) || 1 },
+      hotels
+    });
+  } catch (err) {
+    console.error('searchHotels error', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 
 
 
