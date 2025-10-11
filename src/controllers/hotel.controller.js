@@ -35,7 +35,9 @@ function tryParseJSONField(val) {
 }
 
 exports.createHotel = async (req, res) => {
-  let hotel; // define upfront for rollback
+  const session = await mongoose.startSession(); // 🧠 Start transaction session
+  session.startTransaction();
+
   try {
     const creator = req.admin;
     if (!creator) {
@@ -77,68 +79,68 @@ exports.createHotel = async (req, res) => {
     }
 
     if (!contact || !contact.phone) {
-      return res
-        .status(400)
-        .json({ message: "Contact phone is required" });
+      return res.status(400).json({ message: "Contact phone is required" });
     }
 
     const loc = buildLocation(location.coordinates);
-
     const finalOwnerName =
       ownerName || creator.name || creator.username || creator.email;
 
     // generate agent password from phone
     const rawPassword = phoneToPasswordRaw(contact.phone);
-    console.log(rawPassword);
     const passwordHash = await bcrypt.hash(rawPassword, SALT_ROUNDS);
 
+    // 🧩 1️⃣ Create hotel admin inside transaction
     const admin = new Admin({
-      email: contact.email.toLowerCase(),
+      email: contact.email?.toLowerCase(),
       passwordHash,
       name,
       role: "hotel",
     });
 
-    await admin.save();
+    await admin.save({ session });
 
-    // create hotel
-    hotel = await Hotel.create({
-      admin: admin._id,
-      name,
-      description,
-      price,
-      address,
-      contact,
-      location: loc,
-      amenities: Array.isArray(amenities) ? amenities : [],
-      images: Array.isArray(images) ? images : [],
-      createdBy: creator._id,
-      ownerName: finalOwnerName,
-      status: "active",
+    // 🏨 2️⃣ Create hotel record linked to admin
+    const hotel = await Hotel.create(
+      [
+        {
+          admin: admin._id,
+          name,
+          description,
+          price,
+          address,
+          contact,
+          location: loc,
+          amenities: Array.isArray(amenities) ? amenities : [],
+          images: Array.isArray(images) ? images : [],
+          createdBy: creator._id,
+          ownerName: finalOwnerName,
+          status: "active",
+        },
+      ],
+      { session }
+    );
+
+    // ✅ 3️⃣ Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(201).json({
+      message: "Hotel created successfully",
+      hotel: hotel[0],
     });
-
-
-
-    return res
-      .status(201)
-      .json({ message: "Hotel created", hotel });
   } catch (err) {
-    console.error("createHotel error", err);
+    console.error("❌ createHotel error", err);
 
-    // 🟢 Handle duplicate key error for admin email
+    // 🔁 Rollback all operations
+    await session.abortTransaction();
+    session.endSession();
+
+    // handle duplicate email
     if (err.code === 11000 && err.keyPattern?.email) {
-      return res
-        .status(400)
-        .json({ message: "Admin with this email already exists" });
-    }
-
-    // rollback hotel if created
-    if (hotel && hotel._id) {
-      try {
-        await Hotel.findByIdAndDelete(hotel._id);
-      } catch (rollbackErr) {
-        console.error("Hotel rollback failed", rollbackErr);
-      }
+      return res.status(400).json({
+        message: "Admin with this email already exists",
+      });
     }
 
     return res.status(500).json({
@@ -147,6 +149,7 @@ exports.createHotel = async (req, res) => {
     });
   }
 };
+
 
 
 /**
