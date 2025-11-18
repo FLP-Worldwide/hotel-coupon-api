@@ -8,8 +8,9 @@ const upload = require('../middlewares/upload');
 // Public listing & get (optional: change to protected as needed)
 router.get('/', hotelCtrl.listHotels);
 router.get('/admin', adminAuth, hotelCtrl.listHotelsAdmin);
-router.get('/:id', hotelCtrl.getHotel);
 router.get('/search/:query', hotelCtrl.searchHotels);
+router.get('/:id/plans', hotelCtrl.getHotel);
+router.get('/:id', hotelCtrl.getHotel);
 
 // Protected hotel management (admin or hotel role)
 router.post('/', adminAuth, upload.array('images', 10), hotelCtrl.createHotel);

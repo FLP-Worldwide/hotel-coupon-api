@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const Coupon = require('../models/Coupon');
 const bcrypt = require('bcryptjs');
 const { phoneToPasswordRaw } = require('../utils/helper');
+const Plan = require('../models/Plan');
 const SALT_ROUNDS = 10;
 
 
@@ -160,29 +161,73 @@ exports.createHotel = async (req, res) => {
 exports.getHotel = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid hotel id' });
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid hotel id' });
+    }
 
-    // Fetch hotel
-    const hotel = await Hotel.findById(id).populate('createdBy', 'email username name role');
-    if (!hotel) return res.status(404).json({ message: 'Hotel not found' });
+    // 1) Fetch hotel
+    const hotel = await Hotel.findById(id).populate(
+      'createdBy',
+      'email username name role'
+    );
+    if (!hotel) {
+      return res.status(404).json({ message: 'Hotel not found' });
+    }
 
-    // Find coupons applicable to this hotel (or global)
     const now = new Date();
-    const coupons = await Coupon.find({
+
+    // 2) Find ACTIVE plans applicable to this hotel (or global)
+    const plans = await Plan.find({
       status: 'active',
       validFrom: { $lte: now },
       validTo: { $gte: now },
       $or: [
-        { applicableHotels: new mongoose.Types.ObjectId(id) },          // specific to this hotel
-        { applicableHotels: { $exists: true, $size: 0 } },          // explicit empty array = global
-        { applicableHotels: { $exists: false } }                    // field missing = treat as global
-      ]
+        { applicableHotels: new mongoose.Types.ObjectId(id) }, // specific to this hotel
+        { applicableHotels: { $exists: true, $size: 0 } },     // explicit empty array = global
+        { applicableHotels: { $exists: false } },              // field missing = global
+      ],
     })
-      .select('code title price description discountType discountValue minOrderValue maxDiscount validFrom validTo usageLimit perUserLimit') // only send needed fields
       .sort({ validTo: 1 }) // soonest expiring first
       .lean();
 
-    return res.json({ success: true, hotel, coupons });
+    // If no plans, just return hotel with empty plans array
+    if (!plans.length) {
+      return res.json({ success: true, hotel, plans: [] });
+    }
+
+    // 3) Fetch coupons for these plans
+    const planIds = plans.map((p) => p._id);
+
+    const coupons = await Coupon.find({
+      plan: { $in: planIds },
+      status: 'active',
+      validFrom: { $lte: now },
+      validTo: { $gte: now },
+    })
+      .select(
+        'code title price description discountType discountValue minOrderValue maxDiscount validFrom validTo usageLimit perUserLimit plan'
+      )
+      .lean();
+
+    // 4) Group coupons by planId
+    const couponsByPlan = coupons.reduce((acc, c) => {
+      const pid = String(c.plan);
+      if (!acc[pid]) acc[pid] = [];
+      acc[pid].push(c);
+      return acc;
+    }, {});
+
+    // 5) Attach coupons to each plan
+    const plansWithCoupons = plans.map((p) => ({
+      ...p,
+      coupons: couponsByPlan[String(p._id)] || [],
+    }));
+
+    return res.json({
+      success: true,
+      hotel,
+      plans: plansWithCoupons,
+    });
   } catch (err) {
     console.error('getHotel error', err);
     return res.status(500).json({ message: 'Internal server error' });
