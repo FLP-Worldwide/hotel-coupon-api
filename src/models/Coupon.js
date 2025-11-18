@@ -2,38 +2,80 @@
 const mongoose = require('mongoose');
 
 const couponSchema = new mongoose.Schema({
-    code: { type: String, required: true, uppercase: true, index: true }, // unique per tenant/ global
-    title: { type: String },
-    description: { type: String },
+  code: {
+    type: String,
+    required: true,
+    uppercase: true,
+    index: true,
+  },
 
-    // type: percentage (e.g. 10) or fixed amount (e.g. 500)
-    discountType: { type: String, enum: ['percentage', 'fixed'], required: true },
-    discountValue: { type: Number, required: true },
+  // 🔗 every coupon now belongs to a plan
+  plan: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Plan',
+    required: true,
+  },
 
-    minOrderValue: { type: Number, default: 0 },   // min booking amount to apply
-    maxDiscount: { type: Number },                 // cap on percentage discounts
+  title: { type: String },           // usually plan title or custom
+  description: { type: String },     // "food", "travel", "room", etc.
 
-    validFrom: { type: Date, default: Date.now },
-    validTo: { type: Date, required: true },
+  // discount info from frontend row
+  discountType: {
+    type: String,
+    enum: ['percentage', 'fixed'],
+    required: true,
+  },
+  discountValue: {
+    type: Number,
+    required: true,
+  },
 
-    usageLimit: { type: Number, default: 0 },      // 0 = unlimited
-    perUserLimit: { type: Number, default: 1 },    // times a single user can use
+  // from coupon row
+  minOrderValue: { type: Number, default: 0 },
 
-    usedCount: { type: Number, default: 0 },       // global uses
-    usedBy: [{                                     // track usage by user (optional)
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        count: { type: Number, default: 1 },
-        lastUsedAt: { type: Date, default: Date.now }
-    }],
+  // optional caps / limits (not on UI but safe to keep)
+  maxDiscount: { type: Number },
+  usageLimit: { type: Number, default: 0 },   // 0 = unlimited
+  perUserLimit: { type: Number, default: 1 },
 
-    applicableHotels: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Hotel' }], // empty = all hotels
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true }, // admin or hotel user
-    status: { type: String, enum: ['active', 'inactive', 'expired'], default: 'active' },
-    price: { type: Number },
-    createdAt: { type: Date, default: Date.now }
+  // validity – re-used from plan.validTo when you create
+  validFrom: { type: Date, default: Date.now },
+  validTo: { type: Date, required: true },
+
+  // tracking usage (you can keep or remove)
+  usedCount: { type: Number, default: 0 },
+  usedBy: [
+    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      count: { type: Number, default: 1 },
+      lastUsedAt: { type: Date, default: Date.now },
+    },
+  ],
+
+  // usually same as plan.applicableHotels, but can override per coupon if needed
+  applicableHotels: [
+    { type: mongoose.Schema.Types.ObjectId, ref: 'Hotel' },
+  ],
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    required: true,
+  },
+
+  status: {
+    type: String,
+    enum: ['active', 'inactive', 'expired'],
+    default: 'active',
+  },
+
+  // 💡 this is where frontend `couponPrice` is stored
+  price: { type: Number },
+
+  createdAt: { type: Date, default: Date.now },
 });
 
-// Compound index to avoid duplicate codes per creator scope (optional)
-couponSchema.index({ code: 1, createdBy: 1 }, { unique: true });
+// unique code per plan (so same code allowed for another plan if you want)
+couponSchema.index({ code: 1, plan: 1 }, { unique: true });
 
 module.exports = mongoose.model('Coupon', couponSchema);
