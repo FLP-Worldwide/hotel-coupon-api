@@ -1,52 +1,45 @@
 // src/middlewares/upload.js
-const path = require("path");
-const fs = require("fs");
-const multer = require("multer");
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
-// 🔥 Detect Lambda
-const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+// ensure upload folder exists
+const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
+const HOTEL_UPLOAD_PATH = path.join(UPLOAD_ROOT, 'hotels');
+fs.mkdirSync(HOTEL_UPLOAD_PATH, { recursive: true });
 
-// ✅ Base upload directory
-const BASE_UPLOAD_DIR = isLambda
-  ? "/tmp/uploads"                  // ✅ Lambda writable
-  : path.join(__dirname, "..", "uploads"); // ✅ Local / EC2
-
-const HOTEL_UPLOAD_PATH = path.join(BASE_UPLOAD_DIR, "hotels");
-
-// ✅ Ensure directory exists
-if (!fs.existsSync(HOTEL_UPLOAD_PATH)) {
-  fs.mkdirSync(HOTEL_UPLOAD_PATH, { recursive: true });
-}
-
-// Multer storage
+// disk storage
 const storage = multer.diskStorage({
-  destination(req, file, cb) {
+  destination: function (req, file, cb) {
     cb(null, HOTEL_UPLOAD_PATH);
   },
-  filename(req, file, cb) {
+  filename: function (req, file, cb) {
+    // timestamp + random + original ext
     const ext = path.extname(file.originalname).toLowerCase();
-    const name = path
-      .basename(file.originalname, ext)
-      .replace(/\s+/g, "-")
-      .replace(/[^a-zA-Z0-9-_]/g, "");
-
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}-${name}${ext}`);
+    const name = path.basename(file.originalname, ext).replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '');
+    const filename = `${Date.now()}-${Math.floor(Math.random()*1e6)}-${name}${ext}`;
+    cb(null, filename);
   }
 });
 
-// Only images
+// only allow images
 function fileFilter(req, file, cb) {
-  if (file.mimetype.startsWith("image/")) {
+  const allowed = /jpeg|jpg|png|webp/;
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mime = file.mimetype;
+  if (allowed.test(ext) && (mime.startsWith('image/'))) {
     cb(null, true);
   } else {
-    cb(new Error("Only image files allowed"), false);
+    cb(new Error('Only image files are allowed (jpeg, jpg, png, webp)'), false);
   }
 }
 
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5 MB per file
+  }
 });
 
 module.exports = upload;
