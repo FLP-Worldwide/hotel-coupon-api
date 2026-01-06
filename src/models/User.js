@@ -12,7 +12,6 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// Indexes
-userSchema.index({ phone: 1 }, { unique: true });
+
 
 module.exports = mongoose.model('User', userSchema);
