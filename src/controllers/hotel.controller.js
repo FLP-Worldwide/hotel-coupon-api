@@ -35,33 +35,135 @@ function tryParseJSONField(val) {
   }
 }
 
+// exports.createHotel = async (req, res) => {
+//   const session = await mongoose.startSession(); // 🧠 Start transaction session
+//   session.startTransaction();
+
+//   try {
+//     const creator = req.admin;
+//     if (!creator) {
+//       return res.status(401).json({ message: "Unauthorized" });
+//     }
+
+//     const rawBody = req.body || {};
+//     const parsedBody = {
+//       name: rawBody.name,
+//       description: rawBody.description,
+//       price: rawBody.price,
+//       address: tryParseJSONField(rawBody.address) || {},
+//       contact: tryParseJSONField(rawBody.contact) || {},
+//       location: tryParseJSONField(rawBody.location) || {},
+//       amenities: tryParseJSONField(rawBody.amenities) || [],
+//       images:
+//         req.files && req.files.length
+//           ? req.files.map((f) => f.filename)
+//           : tryParseJSONField(rawBody.images) || [],
+//       ownerName: rawBody.ownerName,
+//       status: rawBody.status,
+//       existingImages: tryParseJSONField(rawBody.existingImages) || [],
+//     };
+
+//     const {
+//       name,
+//       description,
+//       price,
+//       address = {},
+//       contact = {},
+//       location = {},
+//       amenities = [],
+//       images = [],
+//       ownerName,
+//     } = parsedBody;
+
+//     if (!name) {
+//       return res.status(400).json({ message: "Hotel name is required" });
+//     }
+
+//     if (!contact || !contact.phone) {
+//       return res.status(400).json({ message: "Contact phone is required" });
+//     }
+
+//     const loc = buildLocation(location.coordinates);
+//     const finalOwnerName =
+//       ownerName || creator.name || creator.username || creator.email;
+
+//     // generate agent password from phone
+//     const rawPassword = phoneToPasswordRaw(contact.phone);
+//     const passwordHash = await bcrypt.hash(rawPassword, SALT_ROUNDS);
+
+//     // 🧩 1️⃣ Create hotel admin inside transaction
+//     const admin = new Admin({
+//       email: contact.email?.toLowerCase(),
+//       passwordHash,
+//       name,
+//       role: "hotel",
+//     });
+
+//     await admin.save({ session });
+
+//     // 🏨 2️⃣ Create hotel record linked to admin
+//     const hotel = await Hotel.create(
+//       [
+//         {
+//           admin: admin._id,
+//           name,
+//           description,
+//           price,
+//           address,
+//           contact,
+//           location: loc,
+//           amenities: Array.isArray(amenities) ? amenities : [],
+//           images: Array.isArray(images) ? images : [],
+//           createdBy: creator._id,
+//           ownerName: finalOwnerName,
+//           status: "active",
+//         },
+//       ],
+//       { session }
+//     );
+
+//     // ✅ 3️⃣ Commit the transaction
+//     await session.commitTransaction();
+//     session.endSession();
+
+//     return res.status(201).json({
+//       message: "Hotel created successfully",
+//       hotel: hotel[0],
+//     });
+//   } catch (err) {
+//     console.error("❌ createHotel error", err);
+
+//     // 🔁 Rollback all operations
+//     await session.abortTransaction();
+//     session.endSession();
+
+//     // handle duplicate email
+//     if (err.code === 11000 && err.keyPattern?.email) {
+//       return res.status(400).json({
+//         message: "Admin with this email already exists",
+//       });
+//     }
+
+//     return res.status(500).json({
+//       message: "Internal server error",
+//       error: err.message,
+//     });
+//   }
+// };
+
+
+
 exports.createHotel = async (req, res) => {
-  const session = await mongoose.startSession(); // 🧠 Start transaction session
+  const session = await mongoose.startSession();
   session.startTransaction();
+
+  console.log('createHotel called with body:', req.body);
 
   try {
     const creator = req.admin;
     if (!creator) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-
-    const rawBody = req.body || {};
-    const parsedBody = {
-      name: rawBody.name,
-      description: rawBody.description,
-      price: rawBody.price,
-      address: tryParseJSONField(rawBody.address) || {},
-      contact: tryParseJSONField(rawBody.contact) || {},
-      location: tryParseJSONField(rawBody.location) || {},
-      amenities: tryParseJSONField(rawBody.amenities) || [],
-      images:
-        req.files && req.files.length
-          ? req.files.map((f) => f.filename)
-          : tryParseJSONField(rawBody.images) || [],
-      ownerName: rawBody.ownerName,
-      status: rawBody.status,
-      existingImages: tryParseJSONField(rawBody.existingImages) || [],
-    };
 
     const {
       name,
@@ -73,25 +175,26 @@ exports.createHotel = async (req, res) => {
       amenities = [],
       images = [],
       ownerName,
-    } = parsedBody;
+      status = "active",
+    } = req.body;
 
     if (!name) {
       return res.status(400).json({ message: "Hotel name is required" });
     }
 
-    if (!contact || !contact.phone) {
+    if (!contact?.phone) {
       return res.status(400).json({ message: "Contact phone is required" });
     }
 
-    const loc = buildLocation(location.coordinates);
+    const loc = buildLocation(location?.coordinates);
     const finalOwnerName =
       ownerName || creator.name || creator.username || creator.email;
 
-    // generate agent password from phone
+    // Generate password from phone
     const rawPassword = phoneToPasswordRaw(contact.phone);
     const passwordHash = await bcrypt.hash(rawPassword, SALT_ROUNDS);
 
-    // 🧩 1️⃣ Create hotel admin inside transaction
+    // 1️⃣ Create hotel admin
     const admin = new Admin({
       email: contact.email?.toLowerCase(),
       passwordHash,
@@ -101,7 +204,7 @@ exports.createHotel = async (req, res) => {
 
     await admin.save({ session });
 
-    // 🏨 2️⃣ Create hotel record linked to admin
+    // 2️⃣ Create hotel
     const hotel = await Hotel.create(
       [
         {
@@ -116,13 +219,12 @@ exports.createHotel = async (req, res) => {
           images: Array.isArray(images) ? images : [],
           createdBy: creator._id,
           ownerName: finalOwnerName,
-          status: "active",
+          status,
         },
       ],
       { session }
     );
 
-    // ✅ 3️⃣ Commit the transaction
     await session.commitTransaction();
     session.endSession();
 
@@ -130,14 +232,13 @@ exports.createHotel = async (req, res) => {
       message: "Hotel created successfully",
       hotel: hotel[0],
     });
+
   } catch (err) {
     console.error("❌ createHotel error", err);
 
-    // 🔁 Rollback all operations
     await session.abortTransaction();
     session.endSession();
 
-    // handle duplicate email
     if (err.code === 11000 && err.keyPattern?.email) {
       return res.status(400).json({
         message: "Admin with this email already exists",
@@ -150,8 +251,6 @@ exports.createHotel = async (req, res) => {
     });
   }
 };
-
-
 
 /**
  * Get a single hotel by id
@@ -392,135 +491,220 @@ exports.listHotelsAdmin = async (req, res) => {
  * - Only 'admin' role can update any hotel
  * - 'hotel' role can update only hotels where createdBy === req.admin._id
  */
+
+// exports.updateHotel = async (req, res) => {
+//   try {
+//     const updater = req.admin;
+//     if (!updater) return res.status(401).json({ message: 'Unauthorized' });
+
+//     const { id } = req.params;
+//     if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid hotel id' });
+
+//     const hotel = await Hotel.findById(id);
+//     if (!hotel) return res.status(404).json({ message: 'Hotel not found' });
+
+//     // permission check
+//     if (updater.role !== 'admin' && String(hotel.createdBy) !== String(updater._id)) {
+//       return res.status(403).json({ message: 'Forbidden: you cannot update this hotel' });
+//     }
+
+//     // Parse possible JSON-string fields (multipart/form-data sends JSON as strings)
+//     const rawBody = req.body || {};
+//     const parsedBody = {
+//       name: rawBody.name,
+//       description: rawBody.description,
+//       price: rawBody.price,
+//       address: tryParseJSONField(rawBody.address),
+//       contact: tryParseJSONField(rawBody.contact),
+//       location: tryParseJSONField(rawBody.location),
+//       amenities: tryParseJSONField(rawBody.amenities),
+//       existingImages: tryParseJSONField(rawBody.existingImages), // array of urls or filenames client wants to keep
+//       ownerName: rawBody.ownerName,
+//       status: rawBody.status,
+//     };
+
+//     // Allowed update keys (whitelist)
+//     const allowed = ['name', 'description', 'address', 'contact', 'amenities', 'images', 'status', 'ownerName'];
+
+//     // Apply simple fields (but for address/contact/etc we merge carefully)
+//     // 1) Name/description/status/ownerName
+//     ['name', 'description', 'price', 'status', 'ownerName'].forEach(field => {
+//       if (parsedBody[field] !== undefined) hotel[field] = parsedBody[field];
+//     });
+
+//     // 2) Address (merge)
+//     if (parsedBody.address !== undefined) {
+//       // if address is a string or object; tryParseJSONField already handled JSON strings
+//       hotel.address = typeof parsedBody.address === 'object' && parsedBody.address !== null
+//         ? { ...hotel.address, ...parsedBody.address }
+//         : parsedBody.address; // fallback: replace
+//     }
+
+//     // 3) Contact (merge)
+//     if (parsedBody.contact !== undefined) {
+//       const incomingContact = typeof parsedBody.contact === 'object' && parsedBody.contact !== null
+//         ? parsedBody.contact
+//         : parsedBody.contact; // if it's a string, leave it (but ideally it's parsed)
+//       hotel.contact = { ...(hotel.contact || {}), ...(incomingContact || {}) };
+//       // Validate phone if contact was provided and now missing
+//       if (parsedBody.contact && !hotel.contact.phone) {
+//         return res.status(400).json({ message: 'Contact phone is required' });
+//       }
+//     }
+
+//     // If client didn't provide contact but hotel has no phone at all -> require phone
+//     if (!parsedBody.contact && (!hotel.contact || !hotel.contact.phone)) {
+//       // if there is no phone on existing record, block updates that would leave it missing
+//       return res.status(400).json({ message: 'Contact phone is required (existing record missing phone)' });
+//     }
+
+//     // 4) Amenities
+//     if (parsedBody.amenities !== undefined) {
+//       // ensure array
+//       hotel.amenities = Array.isArray(parsedBody.amenities)
+//         ? parsedBody.amenities
+//         : (typeof parsedBody.amenities === 'string' ? tryParseJSONField(parsedBody.amenities) : parsedBody.amenities);
+//       if (!Array.isArray(hotel.amenities)) hotel.amenities = [];
+//     }
+
+//     // 5) Location: support { coordinates: [lng, lat] } or coordinates array string
+//     if (parsedBody.location !== undefined) {
+//       let coords = null;
+//       if (Array.isArray(parsedBody.location.coordinates)) {
+//         coords = parsedBody.location.coordinates;
+//       } else if (Array.isArray(parsedBody.location)) {
+//         coords = parsedBody.location;
+//       } else if (typeof parsedBody.location === 'string') {
+//         // try parse stringified coordinates or object
+//         const locParsed = tryParseJSONField(parsedBody.location);
+//         if (locParsed && Array.isArray(locParsed.coordinates)) coords = locParsed.coordinates;
+//         else if (Array.isArray(locParsed)) coords = locParsed;
+//       }
+//       if (coords && Array.isArray(coords)) {
+//         const loc = buildLocation(coords);
+//         if (loc) hotel.location = loc;
+//       }
+//     }
+
+//     // 6) Images: combine existingImages from body (URLs/filenames client wants to keep) + newly uploaded files in req.files
+//     // multer will populate req.files depending on your middleware (array/single). We'll support both.
+//     const uploadedFiles = (req.files && Array.isArray(req.files)) ? req.files : (req.file ? [req.file] : []);
+//     const uploadedFilenames = uploadedFiles.map(f => f.filename).filter(Boolean);
+
+//     // existingImages expected to be array of urls or filenames client wants to keep
+//     const keepExisting = Array.isArray(parsedBody.existingImages) ? parsedBody.existingImages : [];
+
+//     // If parsedBody.images is provided as JSON array (legacy), prefer that as explicit set
+//     let finalImages = null;
+//     if (parsedBody.images !== undefined) {
+//       // parsedBody.images might be array or string; try parse
+//       const imgVal = tryParseJSONField(parsedBody.images);
+//       if (Array.isArray(imgVal)) finalImages = imgVal;
+//     }
+
+//     if (finalImages === null) {
+//       // otherwise assemble: kept existing + new uploaded files
+//       finalImages = [...(keepExisting || []), ...(uploadedFilenames || [])];
+//     }
+
+//     // If client explicitly provided empty existingImages and no new files, we'll clear images
+//     if (Array.isArray(parsedBody.existingImages) && parsedBody.existingImages.length === 0 && uploadedFilenames.length === 0 && parsedBody.images === undefined) {
+//       // explicit intent to remove all existing images
+//       hotel.images = [];
+//     } else if (finalImages) {
+//       hotel.images = finalImages;
+//     }
+
+//     // Save
+//     await hotel.save();
+
+//     return res.json({ message: 'Hotel updated', hotel });
+//   } catch (err) {
+//     return res.status(500).json({ message: 'Internal server error', error: err.message });
+//   }
+// };
+
+
 exports.updateHotel = async (req, res) => {
   try {
     const updater = req.admin;
     if (!updater) return res.status(401).json({ message: 'Unauthorized' });
 
     const { id } = req.params;
-    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid hotel id' });
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid hotel id' });
+    }
 
     const hotel = await Hotel.findById(id);
     if (!hotel) return res.status(404).json({ message: 'Hotel not found' });
 
-    // permission check
     if (updater.role !== 'admin' && String(hotel.createdBy) !== String(updater._id)) {
-      return res.status(403).json({ message: 'Forbidden: you cannot update this hotel' });
+      return res.status(403).json({ message: 'Forbidden' });
     }
 
-    // Parse possible JSON-string fields (multipart/form-data sends JSON as strings)
-    const rawBody = req.body || {};
-    const parsedBody = {
-      name: rawBody.name,
-      description: rawBody.description,
-      price: rawBody.price,
-      address: tryParseJSONField(rawBody.address),
-      contact: tryParseJSONField(rawBody.contact),
-      location: tryParseJSONField(rawBody.location),
-      amenities: tryParseJSONField(rawBody.amenities),
-      existingImages: tryParseJSONField(rawBody.existingImages), // array of urls or filenames client wants to keep
-      ownerName: rawBody.ownerName,
-      status: rawBody.status,
-    };
+    const {
+      name,
+      description,
+      price,
+      address,
+      contact,
+      location,
+      amenities,
+      images,
+      ownerName,
+      status,
+    } = req.body;
 
-    // Allowed update keys (whitelist)
-    const allowed = ['name', 'description', 'address', 'contact', 'amenities', 'images', 'status', 'ownerName'];
+    // Basic fields
+    if (name !== undefined) hotel.name = name;
+    if (description !== undefined) hotel.description = description;
+    if (price !== undefined) hotel.price = price;
+    if (status !== undefined) hotel.status = status;
+    if (ownerName !== undefined) hotel.ownerName = ownerName;
 
-    // Apply simple fields (but for address/contact/etc we merge carefully)
-    // 1) Name/description/status/ownerName
-    ['name', 'description', 'price', 'status', 'ownerName'].forEach(field => {
-      if (parsedBody[field] !== undefined) hotel[field] = parsedBody[field];
-    });
-
-    // 2) Address (merge)
-    if (parsedBody.address !== undefined) {
-      // if address is a string or object; tryParseJSONField already handled JSON strings
-      hotel.address = typeof parsedBody.address === 'object' && parsedBody.address !== null
-        ? { ...hotel.address, ...parsedBody.address }
-        : parsedBody.address; // fallback: replace
+    // Address merge
+    if (address && typeof address === "object") {
+      hotel.address = { ...hotel.address, ...address };
     }
 
-    // 3) Contact (merge)
-    if (parsedBody.contact !== undefined) {
-      const incomingContact = typeof parsedBody.contact === 'object' && parsedBody.contact !== null
-        ? parsedBody.contact
-        : parsedBody.contact; // if it's a string, leave it (but ideally it's parsed)
-      hotel.contact = { ...(hotel.contact || {}), ...(incomingContact || {}) };
-      // Validate phone if contact was provided and now missing
-      if (parsedBody.contact && !hotel.contact.phone) {
-        return res.status(400).json({ message: 'Contact phone is required' });
-      }
+    // Contact merge
+    if (contact && typeof contact === "object") {
+      hotel.contact = { ...hotel.contact, ...contact };
     }
 
-    // If client didn't provide contact but hotel has no phone at all -> require phone
-    if (!parsedBody.contact && (!hotel.contact || !hotel.contact.phone)) {
-      // if there is no phone on existing record, block updates that would leave it missing
-      return res.status(400).json({ message: 'Contact phone is required (existing record missing phone)' });
+    if (!hotel.contact?.phone) {
+      return res.status(400).json({ message: "Contact phone is required" });
     }
 
-    // 4) Amenities
-    if (parsedBody.amenities !== undefined) {
-      // ensure array
-      hotel.amenities = Array.isArray(parsedBody.amenities)
-        ? parsedBody.amenities
-        : (typeof parsedBody.amenities === 'string' ? tryParseJSONField(parsedBody.amenities) : parsedBody.amenities);
-      if (!Array.isArray(hotel.amenities)) hotel.amenities = [];
+    // Amenities
+    if (amenities !== undefined) {
+      hotel.amenities = Array.isArray(amenities) ? amenities : [];
     }
 
-    // 5) Location: support { coordinates: [lng, lat] } or coordinates array string
-    if (parsedBody.location !== undefined) {
-      let coords = null;
-      if (Array.isArray(parsedBody.location.coordinates)) {
-        coords = parsedBody.location.coordinates;
-      } else if (Array.isArray(parsedBody.location)) {
-        coords = parsedBody.location;
-      } else if (typeof parsedBody.location === 'string') {
-        // try parse stringified coordinates or object
-        const locParsed = tryParseJSONField(parsedBody.location);
-        if (locParsed && Array.isArray(locParsed.coordinates)) coords = locParsed.coordinates;
-        else if (Array.isArray(locParsed)) coords = locParsed;
-      }
-      if (coords && Array.isArray(coords)) {
-        const loc = buildLocation(coords);
-        if (loc) hotel.location = loc;
-      }
+    // Location
+    if (location?.coordinates && Array.isArray(location.coordinates)) {
+      const loc = buildLocation(location.coordinates);
+      if (loc) hotel.location = loc;
     }
 
-    // 6) Images: combine existingImages from body (URLs/filenames client wants to keep) + newly uploaded files in req.files
-    // multer will populate req.files depending on your middleware (array/single). We'll support both.
-    const uploadedFiles = (req.files && Array.isArray(req.files)) ? req.files : (req.file ? [req.file] : []);
-    const uploadedFilenames = uploadedFiles.map(f => f.filename).filter(Boolean);
-
-    // existingImages expected to be array of urls or filenames client wants to keep
-    const keepExisting = Array.isArray(parsedBody.existingImages) ? parsedBody.existingImages : [];
-
-    // If parsedBody.images is provided as JSON array (legacy), prefer that as explicit set
-    let finalImages = null;
-    if (parsedBody.images !== undefined) {
-      // parsedBody.images might be array or string; try parse
-      const imgVal = tryParseJSONField(parsedBody.images);
-      if (Array.isArray(imgVal)) finalImages = imgVal;
+    // ✅ Images (Direct URL Array)
+    if (images !== undefined) {
+      hotel.images = Array.isArray(images) ? images : [];
     }
 
-    if (finalImages === null) {
-      // otherwise assemble: kept existing + new uploaded files
-      finalImages = [...(keepExisting || []), ...(uploadedFilenames || [])];
-    }
-
-    // If client explicitly provided empty existingImages and no new files, we'll clear images
-    if (Array.isArray(parsedBody.existingImages) && parsedBody.existingImages.length === 0 && uploadedFilenames.length === 0 && parsedBody.images === undefined) {
-      // explicit intent to remove all existing images
-      hotel.images = [];
-    } else if (finalImages) {
-      hotel.images = finalImages;
-    }
-
-    // Save
     await hotel.save();
 
-    return res.json({ message: 'Hotel updated', hotel });
+    return res.json({
+      message: "Hotel updated successfully",
+      hotel,
+    });
+
   } catch (err) {
-    return res.status(500).json({ message: 'Internal server error', error: err.message });
+    console.error("❌ updateHotel error", err);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: err.message,
+    });
   }
 };
 

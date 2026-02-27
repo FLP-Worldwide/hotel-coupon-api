@@ -13,8 +13,11 @@ router.get('/:id/plans', hotelCtrl.getHotel);
 router.get('/:id', hotelCtrl.getHotel);
 
 // Protected hotel management (admin or hotel role)
-router.post('/', adminAuth, upload.array('images', 10), hotelCtrl.createHotel);
-router.put('/:id', adminAuth, upload.array('images', 10), hotelCtrl.updateHotel);
+// router.post('/', adminAuth, upload.array('images', 10), hotelCtrl.createHotel);
+// router.put('/:id', adminAuth, upload.array('images', 10), hotelCtrl.updateHotel);
+
+router.post('/', adminAuth, hotelCtrl.createHotel);
+router.put('/:id', adminAuth, hotelCtrl.updateHotel);
 router.delete('/:id', adminAuth, hotelCtrl.deleteHotel);
 
 module.exports = router;
