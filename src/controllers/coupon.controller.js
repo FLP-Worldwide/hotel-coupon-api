@@ -230,7 +230,7 @@ exports.deletePlan = async (req, res) => {
   }
 };
 
-exports.updatePlan = async (req, res) => {
+exports.updateCoupon = async (req, res) => {
   try {
     const creator = req.admin;
 
