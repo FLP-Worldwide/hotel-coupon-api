@@ -308,11 +308,13 @@ exports.updatePlan = async (req, res) => {
 
             plan: plan._id,
 
+            benefitName: benefitName, // ⭐ REQUIRED FIELD
+
             title: benefitName || title || name,
 
             description: benefitName || description || "",
 
-            discountType: discountType || "fixed",
+            discountType: discountType || "free",
 
             discountValue: Number(discountValue) || 0,
 
@@ -325,6 +327,9 @@ exports.updatePlan = async (req, res) => {
             status: status || "active",
 
             usedCount: 0,
+
+            validFrom: null,
+            validTo: null,
           });
         });
       });
@@ -453,31 +458,134 @@ exports.listCoupons = async (req, res) => {
 };
 
 /** Update coupon */
-exports.updateCoupon = async (req, res) => {
-    try {
-        const updater = req.admin;
-        if (!updater) return res.status(401).json({ message: 'Unauthorized' });
+exports.updatePlan = async (req, res) => {
+  try {
+    const creator = req.admin;
 
-        const { id } = req.params;
-        if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
-
-        const coupon = await Coupon.findById(id);
-        if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
-
-        // permission: hotel role can only update coupons they created
-        if (updater.role === 'hotel' && String(coupon.createdBy) !== String(updater._id)) {
-            return res.status(403).json({ message: 'Forbidden' });
-        }
-
-        const allowed = ['title', 'description', 'discountType', 'discountValue', 'minOrderValue', 'maxDiscount', 'validFrom', 'validTo', 'usageLimit', 'perUserLimit', 'applicableHotels', 'status'];
-        allowed.forEach(k => { if (req.body[k] !== undefined) coupon[k] = req.body[k]; });
-
-        await coupon.save();
-        return res.json({ message: 'Coupon updated', coupon });
-    } catch (err) {
-        console.error('updateCoupon', err);
-        return res.status(500).json({ message: 'Internal server error' });
+    if (!creator) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
+
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid id" });
+    }
+
+    const {
+      name,
+      title,
+      description,
+      price,
+      validityMonths,
+      applicableHotels,
+      status,
+      benefits,
+    } = req.body;
+
+    if (!name || price == null || !validityMonths) {
+      return res.status(400).json({
+        message: "name, price and validityMonths are required",
+      });
+    }
+
+    // 1️⃣ Update Plan
+    const plan = await Plan.findOneAndUpdate(
+      { _id: id, createdBy: creator._id },
+      {
+        name,
+        title,
+        description,
+        price,
+        validityMonths,
+        applicableHotels: applicableHotels || [],
+        status: status || "active",
+      },
+      { new: true }
+    );
+
+    if (!plan) {
+      return res.status(404).json({ message: "Plan not found" });
+    }
+
+    // 2️⃣ Delete existing coupons
+    await Coupon.deleteMany({ plan: plan._id });
+
+    // 3️⃣ Re-create coupons from benefits
+    if (Array.isArray(benefits) && benefits.length > 0) {
+      const couponDocs = [];
+
+      benefits.forEach((benefit) => {
+        const {
+          name: benefitName,
+          discountType,
+          discountValue,
+          redeemPerVisit,
+          coupons,
+        } = benefit;
+
+        if (!Array.isArray(coupons)) return;
+
+        coupons.forEach((c) => {
+          if (!c.code) return;
+
+          const code = String(c.code).trim().toUpperCase();
+
+          couponDocs.push({
+            code,
+
+            plan: plan._id,
+
+            benefitName: benefitName || "Benefit", // ⭐ FIX
+
+            title: benefitName || title || name,
+
+            description: benefitName || description || "",
+
+            discountType: discountType || "fixed",
+
+            discountValue: Number(discountValue) || 0,
+
+            redeemPerVisit: Number(redeemPerVisit) || 1,
+
+            applicableHotels: applicableHotels || [],
+
+            createdBy: creator._id,
+
+            status: status || "active",
+
+            usedCount: 0,
+
+            validFrom: null,
+            validTo: null,
+          });
+        });
+      });
+
+      if (couponDocs.length > 0) {
+        await Coupon.insertMany(couponDocs);
+      }
+    }
+
+    return res.status(200).json({
+      message: "Plan updated successfully",
+      plan,
+    });
+
+  } catch (err) {
+    console.error("updatePlan", err);
+
+    if (err.code === 11000) {
+      return res.status(409).json({
+        message: "Duplicate coupon code detected",
+      });
+    }
+
+    return res.status(500).json({
+      message: "Internal server error",
+      error: err.message,
+    });
+  }
 };
 
 /** Delete coupon */
