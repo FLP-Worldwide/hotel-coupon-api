@@ -99,6 +99,7 @@ exports.createPlan = async (req, res) => {
           name: benefitName,
           discountType,
           discountValue,
+          description,
           redeemPerVisit,
           coupons,
         } = benefit;
@@ -112,7 +113,7 @@ exports.createPlan = async (req, res) => {
             code,
 
             title: benefitName || title || name,
-            description: benefitName,
+            description: description || " ",
 
             discountType,
             discountValue: Number(discountValue) || 0,
@@ -247,7 +248,7 @@ exports.updateCoupon = async (req, res) => {
     const {
       name,
       title,
-      description,
+      description: planDescription,
       price,
       validityMonths,
       applicableHotels,
@@ -267,7 +268,7 @@ exports.updateCoupon = async (req, res) => {
       {
         name,
         title,
-        description,
+        description: planDescription,
         price,
         validityMonths,
         applicableHotels: applicableHotels || [],
@@ -280,16 +281,18 @@ exports.updateCoupon = async (req, res) => {
       return res.status(404).json({ message: "Plan not found" });
     }
 
-    // 2️⃣ Delete existing coupons of this plan
+    // 2️⃣ Delete old coupons
     await Coupon.deleteMany({ plan: plan._id });
 
-    // 3️⃣ Re-create coupons from benefits
+    // 3️⃣ Recreate coupons
     if (Array.isArray(benefits) && benefits.length > 0) {
       const couponDocs = [];
 
       benefits.forEach((benefit) => {
+
         const {
           name: benefitName,
+          description: benefitDescription,
           discountType,
           discountValue,
           redeemPerVisit,
@@ -299,6 +302,7 @@ exports.updateCoupon = async (req, res) => {
         if (!Array.isArray(coupons)) return;
 
         coupons.forEach((c) => {
+
           if (!c.code) return;
 
           const code = String(c.code).trim().toUpperCase();
@@ -308,11 +312,11 @@ exports.updateCoupon = async (req, res) => {
 
             plan: plan._id,
 
-            benefitName: benefitName, // ⭐ REQUIRED FIELD
+            benefitName: benefitName,
 
-            title: benefitName || title || name,
+            title: benefitName,
 
-            description: benefitName || description || "",
+             description: benefitDescription || "",
 
             discountType: discountType || "free",
 
@@ -331,7 +335,9 @@ exports.updateCoupon = async (req, res) => {
             validFrom: null,
             validTo: null,
           });
+
         });
+
       });
 
       if (couponDocs.length > 0) {
@@ -343,7 +349,9 @@ exports.updateCoupon = async (req, res) => {
       message: "Plan updated successfully",
       plan,
     });
+
   } catch (err) {
+
     console.error("updatePlan", err);
 
     if (err.code === 11000) {
