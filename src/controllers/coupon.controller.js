@@ -61,81 +61,104 @@ exports.createPlan = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    const body = req.body;
-    const { name, title, description, price, validTo, applicableHotels, status, coupons } = body;
+    const {
+      name,
+      title,
+      description,
+      price,
+      validityMonths,
+      applicableHotels,
+      status,
+      benefits,
+    } = req.body;
 
-    if (!name || price == null || !validTo) {
-      return res
-        .status(400)
-        .json({ message: 'name, price and validTo are required' });
+    if (!name || price == null || !validityMonths) {
+      return res.status(400).json({
+        message: 'name, price and validityMonths are required',
+      });
     }
 
-    // 1) Create plan
+    // 1️⃣ Create plan
     const plan = await Plan.create({
       name,
       title,
       description,
       price,
-      validTo: new Date(validTo),
+      validityMonths,
       applicableHotels: applicableHotels || [],
       status: status || 'active',
       createdBy: creator._id,
     });
 
-    // 2) Create coupons attached to this plan (one doc per code)
-    if (Array.isArray(coupons) && coupons.length > 0) {
-      const baseData = {
-        title: title || name,
-        validFrom: new Date(),
-        validTo: new Date(validTo),
-        applicableHotels: applicableHotels || [],
-        status: status || 'active',
-        createdBy: creator._id,
-        plan: plan._id,        // 🔗 link to plan
-      };
+    // 2️⃣ Create coupons from benefits
+    if (Array.isArray(benefits) && benefits.length > 0) {
+      const couponDocs = [];
 
-      const couponDocs = coupons.map((c) => {
-        if (!c.code || !c.discountType || !c.discountValue) {
-          throw new Error('Each coupon needs code, discountType, discountValue');
-        }
+      benefits.forEach((benefit) => {
+        const {
+          name: benefitName,
+          discountType,
+          discountValue,
+          redeemPerVisit,
+          coupons,
+        } = benefit;
 
-        const code = String(c.code).trim().toUpperCase();
+        if (!Array.isArray(coupons) || coupons.length === 0) return;
 
-        return {
-          ...baseData,
-          code,
-          description: c.description || description || '',
-          discountType: c.discountType,
-          discountValue: Number(c.discountValue),
-          minOrderValue: c.minOrderValue != null ? Number(c.minOrderValue) : 0,
-          maxDiscount: c.maxDiscount != null ? Number(c.maxDiscount) : undefined,
-          usageLimit: c.usageLimit != null ? Number(c.usageLimit) : 0,
-          perUserLimit: c.perUserLimit != null ? Number(c.perUserLimit) : 1,
-          price:
-            c.couponPrice != null && c.couponPrice !== ''
-              ? Number(c.couponPrice)
-              : undefined,
-        };
+        coupons.forEach((c) => {
+          const code = String(c.code).trim().toUpperCase();
+
+          couponDocs.push({
+            code,
+
+            title: benefitName || title || name,
+            description: benefitName,
+
+            discountType,
+            discountValue: Number(discountValue) || 0,
+
+            applicableHotels: applicableHotels || [],
+
+            status: status || 'active',
+
+            createdBy: creator._id,
+
+            plan: plan._id,
+
+            benefitName,
+
+            redeemPerVisit: Number(redeemPerVisit) || 1,
+
+            usedCount: 0,
+
+            validFrom: null,
+            validTo: null,
+          });
+        });
       });
 
-      await Coupon.insertMany(couponDocs);
+      if (couponDocs.length > 0) {
+        await Coupon.insertMany(couponDocs);
+      }
     }
 
     return res.status(201).json({
-      message: 'Plan created',
+      message: 'Plan created successfully',
       plan,
     });
   } catch (err) {
     console.error('createPlan', err);
-    if (err.message === 'Each coupon needs code, discountType, discountValue') {
-      return res.status(400).json({ message: err.message });
-    }
+
     if (err.code === 11000) {
-      return res.status(409).json({ message: 'Duplicate coupon code for this admin' });
+      return res
+        .status(409)
+        .json({ message: 'Duplicate coupon code detected' });
     }
-    return res
-      .status(500)
-      .json({ message: 'Internal server error', error: err.message });
+
+    return res.status(500).json({
+      message: 'Internal server error',
+      error: err.message,
+    });
   }
 };
 
@@ -206,37 +229,39 @@ exports.deletePlan = async (req, res) => {
       .json({ message: 'Internal server error', error: err.message });
   }
 };
+
 exports.updatePlan = async (req, res) => {
   try {
     const creator = req.admin;
+
     if (!creator) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
     const { id } = req.params;
+
     if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid id' });
+      return res.status(400).json({ message: "Invalid id" });
     }
 
-    const body = req.body;
     const {
       name,
       title,
       description,
       price,
-      validTo,
+      validityMonths,
       applicableHotels,
       status,
-      coupons,
-    } = body;
+      benefits,
+    } = req.body;
 
-    if (!name || price == null || !validTo) {
-      return res
-        .status(400)
-        .json({ message: 'name, price and validTo are required' });
+    if (!name || price == null || !validityMonths) {
+      return res.status(400).json({
+        message: "name, price and validityMonths are required",
+      });
     }
 
-    // 1) Update the plan (only if it belongs to this admin)
+    // 1️⃣ Update Plan
     const plan = await Plan.findOneAndUpdate(
       { _id: id, createdBy: creator._id },
       {
@@ -244,83 +269,90 @@ exports.updatePlan = async (req, res) => {
         title,
         description,
         price,
-        validTo: new Date(validTo),
+        validityMonths,
         applicableHotels: applicableHotels || [],
-        status: status || 'active',
+        status: status || "active",
       },
       { new: true }
     );
 
     if (!plan) {
-      return res.status(404).json({ message: 'Plan not found' });
+      return res.status(404).json({ message: "Plan not found" });
     }
 
-    // 2) Remove all existing coupons for this plan
+    // 2️⃣ Delete existing coupons of this plan
     await Coupon.deleteMany({ plan: plan._id });
 
-    // 3) Re-create coupons attached to this plan (one doc per row)
-    if (Array.isArray(coupons) && coupons.length > 0) {
-      const baseData = {
-        title: title || name,
-        validFrom: new Date(),
-        validTo: new Date(validTo),
-        applicableHotels: applicableHotels || [],
-        status: status || 'active',
-        createdBy: creator._id,
-        plan: plan._id, // link to plan
-      };
+    // 3️⃣ Re-create coupons from benefits
+    if (Array.isArray(benefits) && benefits.length > 0) {
+      const couponDocs = [];
 
-      const couponDocs = coupons.map((c) => {
-        if (!c.code || !c.discountType || !c.discountValue) {
-          throw new Error('Each coupon needs code, discountType, discountValue');
-        }
+      benefits.forEach((benefit) => {
+        const {
+          name: benefitName,
+          discountType,
+          discountValue,
+          redeemPerVisit,
+          coupons,
+        } = benefit;
 
-        const code = String(c.code).trim().toUpperCase();
+        if (!Array.isArray(coupons)) return;
 
-        return {
-          ...baseData,
-          code,
-          description: c.description || description || '',
-          discountType: c.discountType,
-          discountValue: Number(c.discountValue),
-          minOrderValue:
-            c.minOrderValue != null ? Number(c.minOrderValue) : 0,
-          maxDiscount:
-            c.maxDiscount != null ? Number(c.maxDiscount) : undefined,
-          usageLimit:
-            c.usageLimit != null ? Number(c.usageLimit) : 0,
-          perUserLimit:
-            c.perUserLimit != null ? Number(c.perUserLimit) : 1,
-          price:
-            c.couponPrice != null && c.couponPrice !== ''
-              ? Number(c.couponPrice)
-              : undefined,
-        };
+        coupons.forEach((c) => {
+          if (!c.code) return;
+
+          const code = String(c.code).trim().toUpperCase();
+
+          couponDocs.push({
+            code,
+
+            plan: plan._id,
+
+            title: benefitName || title || name,
+
+            description: benefitName || description || "",
+
+            discountType: discountType || "fixed",
+
+            discountValue: Number(discountValue) || 0,
+
+            redeemPerVisit: Number(redeemPerVisit) || 1,
+
+            applicableHotels: applicableHotels || [],
+
+            createdBy: creator._id,
+
+            status: status || "active",
+
+            usedCount: 0,
+          });
+        });
       });
 
-      await Coupon.insertMany(couponDocs);
+      if (couponDocs.length > 0) {
+        await Coupon.insertMany(couponDocs);
+      }
     }
 
     return res.status(200).json({
-      message: 'Plan updated',
+      message: "Plan updated successfully",
       plan,
     });
   } catch (err) {
-    console.error('updatePlan', err);
-    if (err.message === 'Each coupon needs code, discountType, discountValue') {
-      return res.status(400).json({ message: err.message });
-    }
+    console.error("updatePlan", err);
+
     if (err.code === 11000) {
-      return res
-        .status(409)
-        .json({ message: 'Duplicate coupon code for this admin' });
+      return res.status(409).json({
+        message: "Duplicate coupon code detected",
+      });
     }
-    return res
-      .status(500)
-      .json({ message: 'Internal server error', error: err.message });
+
+    return res.status(500).json({
+      message: "Internal server error",
+      error: err.message,
+    });
   }
 };
-
 
 exports.listPlans = async (req, res) => {
   try {
