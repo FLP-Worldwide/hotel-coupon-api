@@ -480,6 +480,9 @@ exports.updatePlan = async (req, res) => {
       return res.status(400).json({ message: "Invalid id" });
     }
 
+    // console.log("updatePlan body", req.body);
+    // return res.status(200).json({ message: "Received", body: req.body });
+
     const {
       name,
       title,
@@ -526,6 +529,7 @@ exports.updatePlan = async (req, res) => {
       benefits.forEach((benefit) => {
         const {
           name: benefitName,
+          description: benefitDescription,
           discountType,
           discountValue,
           redeemPerVisit,
@@ -548,7 +552,7 @@ exports.updatePlan = async (req, res) => {
 
             title: benefitName || title || name,
 
-            description: benefitName || description || "",
+            description: benefitDescription || description || "",
 
             discountType: discountType || "fixed",
 
