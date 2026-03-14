@@ -2,6 +2,7 @@
 const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Coupon = require('../models/Coupon');
+const Plan = require('../models/Plan');
 const Hotel = require('../models/Hotel');
 const User = require('../models/User');
 const Agent = require('../models/Agent');
@@ -155,167 +156,91 @@ const Agent = require('../models/Agent');
 
 exports.createBooking = async (req, res) => {
   try {
-    const { couponId, hotelId: bodyHotelId, qty = 1, price: bodyPrice, rfercode } = req.body;
-    const userId = req.user && req.user._id;
+    const { couponId, hotelId, qty = 1, rfercode, paymentStatus } = req.body;
+    const userId = req.user?._id;
 
-    // basic auth/validation
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-    if (!couponId) return res.status(400).json({ message: 'couponId is required' });
-    if (!mongoose.isValidObjectId(couponId)) return res.status(400).json({ message: 'Invalid couponId' });
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-    // find coupon
-    const coupon = await Coupon.findById(couponId);
-    if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
+    const plan = await Plan.findById(couponId);
+    if (!plan) return res.status(404).json({ message: "Plan not found" });
 
-    // optional: find agent by referral code
+    if (plan.status !== "active") {
+      return res.status(400).json({ message: "Plan not active" });
+    }
+
+    const hotel = await Hotel.findById(hotelId).select("_id");
+    if (!hotel) return res.status(404).json({ message: "Hotel not found" });
+
+    // find all coupons in plan
+    const planCoupons = await Coupon.find({ plan: plan._id });
+
+    if (!planCoupons.length) {
+      return res.status(400).json({ message: "No coupons found in this plan" });
+    }
+
+    // agent lookup
     let agentDoc = null;
     if (rfercode) {
-      agentDoc = await Agent.findOne({ code: rfercode }).select('_id code name adminId').lean();
-      if (!agentDoc) {
-        // If you want to reject invalid referral code, uncomment next line:
-        // return res.status(400).json({ message: 'Invalid referral code' });
-        agentDoc = null; // continue without agent
-      }
-    }
-
-    // Resolve hotel id (may be optional)
-    let hotelId = bodyHotelId;
-    if (!hotelId) {
-      if (Array.isArray(coupon.applicableHotels) && coupon.applicableHotels.length === 1) {
-        hotelId = coupon.applicableHotels[0];
-      } else {
-        hotelId = null;
-      }
-    }
-
-    if (hotelId) {
-      if (!mongoose.isValidObjectId(hotelId)) return res.status(400).json({ message: 'Invalid hotel id' });
-      const hotel = await Hotel.findById(hotelId).select('_id');
-      if (!hotel) return res.status(404).json({ message: 'Hotel not found' });
-    }
-
-    // coupon validity
-    if (coupon.status !== 'active') return res.status(400).json({ message: 'Coupon is not active' });
-    const now = new Date();
-    if (coupon.validFrom && coupon.validFrom > now) return res.status(400).json({ message: 'Coupon not yet available for purchase' });
-    if (coupon.validTo && coupon.validTo < now) return res.status(400).json({ message: 'Coupon offer expired' });
-
-    // price resolution
-    const unitPrice = (bodyPrice != null && !isNaN(Number(bodyPrice)))
-      ? Number(bodyPrice)
-      : (coupon.price != null ? Number(coupon.price) : null);
-    if (unitPrice == null || Number.isNaN(unitPrice)) {
-      return res.status(400).json({ message: 'Price not available for this coupon. Provide price in request or set coupon.price.' });
+      agentDoc = await Agent.findOne({ code: rfercode })
+        .select("_id code adminId")
+        .lean();
     }
 
     const quantity = Number(qty) || 1;
-    if (!Number.isInteger(quantity) || quantity < 1) return res.status(400).json({ message: 'qty must be integer >= 1' });
+    const unitPrice = Number(plan.price);
+    const total = Number((unitPrice * quantity).toFixed(2));
 
-    const subTotal = Number((unitPrice * quantity).toFixed(2));
-    const total = subTotal;
+    // create booking (membership purchase)
+    const booking = await Booking.create({
+      user: userId,
+      hotel: hotel._id,
 
-    // usageLimit check (best-effort)
-    if (coupon.usageLimit && coupon.usageLimit > 0) {
-      if ((coupon.usedCount || 0) + quantity > coupon.usageLimit) {
-        return res.status(400).json({ message: 'Coupon stock / usage limit exceeded' });
-      }
-    }
+      // store first coupon just for reference (model requires it)
+      coupon: planCoupons[0]._id,
 
-    // Prepare objectIds safely (use `new` when constructing)
-    const userObjectId = mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(String(userId)) : userId;
-    const couponObjectId = new mongoose.Types.ObjectId(String(couponId));
-    const hotelObjectId = hotelId && mongoose.isValidObjectId(hotelId) ? new mongoose.Types.ObjectId(String(hotelId)) : null;
+      qty: quantity,
+      price: unitPrice,
+      total,
+      status: paymentStatus === true ? "paid" : "pending",
+      agent: agentDoc ? agentDoc.adminId : undefined,
+      rfercode: agentDoc ? agentDoc.code : undefined,
+    });
 
-    // Attempt atomic-ish coupon update: increment existing usedBy entry or push new entry
-    let couponUpdated = false;
+    // activate all coupons for this purchase
+    const now = new Date();
+    const validTo = new Date();
+    validTo.setMonth(validTo.getMonth() + plan.validityMonths);
 
-    // increment existing usedBy entry
-    const incExisting = await Coupon.updateOne(
+    await Coupon.updateMany(
+      { plan: plan._id },
       {
-        _id: couponObjectId,
-        'usedBy.userId': userObjectId,
-        ...(coupon.usageLimit && coupon.usageLimit > 0 ? { usedCount: { $lte: coupon.usageLimit - quantity } } : {})
-      },
-      {
-        $inc: { 'usedBy.$.count': quantity, usedCount: quantity },
-        $set: { 'usedBy.$.lastUsedAt': new Date() }
+        purchaseId: booking._id,
+        validFrom: now,
+        validTo: validTo,
       }
     );
 
-    if (incExisting.modifiedCount && incExisting.modifiedCount > 0) {
-      couponUpdated = true;
-    } else {
-      // push new usedBy entry if none exists
-      const pushNew = await Coupon.updateOne(
-        {
-          _id: couponObjectId,
-          'usedBy': { $not: { $elemMatch: { userId: userObjectId } } },
-          ...(coupon.usageLimit && coupon.usageLimit > 0 ? { usedCount: { $lte: coupon.usageLimit - quantity } } : {})
-        },
-        {
-          $inc: { usedCount: quantity },
-          $push: { usedBy: { userId: userObjectId, count: quantity, lastUsedAt: new Date() } }
-        }
-      );
-      if (pushNew.modifiedCount && pushNew.modifiedCount > 0) couponUpdated = true;
-    }
-
-    if (!couponUpdated) {
-      return res.status(400).json({ message: 'Coupon cannot be purchased (limit reached). Try again.' });
-    }
-
-    // Create booking with agent and rfercode if present
-    let booking;
-    try {
-      const bookingData = {
-        user: userObjectId,
-        hotel: hotelObjectId ? hotelObjectId : null,
-        coupon: couponObjectId,
-        qty: quantity,
-        price: unitPrice,
-        total,
-        status: 'pending'
-      };
-
-      if (agentDoc) {
-        bookingData.agent = new mongoose.Types.ObjectId(String(agentDoc.adminId));
-        bookingData.rfercode = agentDoc.code || rfercode;
-      } else if (rfercode) {
-        bookingData.rfercode = rfercode;
-      }
-
-      booking = await Booking.create(bookingData);
-    } catch (createErr) {
-      // rollback coupon changes (best-effort)
-      try {
-        await Coupon.updateOne(
-          { _id: couponObjectId, 'usedBy.userId': userObjectId },
-          { $inc: { 'usedBy.$.count': -quantity, usedCount: -quantity } }
-        );
-        await Coupon.updateOne(
-          { _id: couponObjectId },
-          { $pull: { usedBy: { userId: userObjectId, count: { $lte: 0 } } } }
-        );
-      } catch (rbErr) {
-        console.error('Rollback after booking create failure failed:', rbErr);
-      }
-      console.error('Booking creation failed after coupon update:', createErr);
-      return res.status(500).json({ message: 'Failed to create booking' });
-    }
-
-    // populate and return booking (include agent info)
     const populated = await Booking.findById(booking._id)
-      .populate('user', 'name email')
-      .populate('hotel', 'name city')
-      .populate('coupon', 'code title price')
-      .populate('agent', 'name code email');
+      .populate("user", "name email")
+      .populate("hotel", "name city")
+      .populate("coupon", "code benefitName title")
+      .populate("agent", "name code");
 
-    return res.status(201).json({ message: 'Coupon purchased', booking: populated });
+    return res.status(201).json({
+      message: "Membership purchased successfully",
+      booking,
+      couponsActivated: planCoupons.length,
+    });
+
   } catch (err) {
-    console.error('createBooking (purchase) error:', err);
-    return res.status(500).json({ message: 'Internal server error', error: err.message || err });
+    console.error("createBooking error:", err);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: err.message,
+    });
   }
 };
+
 
 /**
  * Admin: get all bookings (paginated)
@@ -345,90 +270,146 @@ exports.getAllBookings = async (req, res) => {
   }
 };
 
-
 exports.getHotelBookings = async (req, res) => {
   try {
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(100, Number(req.query.limit) || 20);
-    const skip = (page - 1) * limit;
+    const bookings = await Booking.find()
+      .populate("user", "name phone")
+      .populate("hotel", "name")
+      .populate({
+        path: "coupon",
+        populate: { path: "plan", select: "name title price" },
+      })
+      .sort({ createdAt: -1 });
 
-    // Build booking filter based on role
-    const bookingFilter = {};
+    const data = await Promise.all(
+      bookings.map(async (b) => {
+        const planId = b.coupon?.plan?._id;
 
-    // If logged-in admin is a hotel-owner, restrict bookings to their hotels only
-    if (req.role === 'hotel') {
-      // fetch hotel ids owned/created by this admin
-      const hotels = await Hotel.find({ admin: req.admin._id }).select('_id').lean();
-      const hotelIds = hotels.map(h => h._id);
+        let groupedBenefits = [];
 
-      // if no hotels, return empty result quickly
-      if (!hotelIds.length) {
-        return res.json({ page, limit, total: 0, totalPages: 0, bookings: [] });
-      }
+        if (planId) {
+          const coupons = await Coupon.find({ plan: planId });
 
-      bookingFilter.hotel = { $in: hotelIds };
-    } else if (req.role === 'agent') {
-      // if agent, restrict to their bookings only
+          groupedBenefits = groupBenefits(coupons);
+        }
 
-      bookingFilter.agent = { $in: req.admin._id };
+        return {
+          _id: b._id,
+          user: b.user,
+          hotel: b.hotel,
+          plan: b.coupon?.plan?.title || b.coupon?.plan?.name,
+          benefits: groupedBenefits,
+          qty: b.qty,
+          total: b.total,
+          status: b.status,
+          createdAt: b.createdAt,
+        };
+      })
+    );
 
-    }
-
-    // (Optional) support query filters from req.query, e.g., status, from/to dates, hotelId, userId, etc.
-    if (req.query.status) bookingFilter.status = req.query.status;
-    if (req.query.hotel && mongoose.isValidObjectId(req.query.hotel)) {
-      // if requester is hotel-owner this will still be constrained by bookingFilter.hotel $in above
-      bookingFilter.hotel = mongoose.isValidObjectId(req.query.hotel)
-        ? mongoose.Types.ObjectId(req.query.hotel)
-        : bookingFilter.hotel;
-    }
-    if (req.query.user && mongoose.isValidObjectId(req.query.user)) bookingFilter.user = mongoose.Types.ObjectId(req.query.user);
-
-    // Fetch bookings + count in parallel
-    const [bookings, total] = await Promise.all([
-      Booking.find(bookingFilter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('user', 'name email phone')
-        .populate('hotel', 'name city createdBy')
-        .populate('coupon', 'code title discountType discountValue'),
-      Booking.countDocuments(bookingFilter),
-    ]);
-
-    return res.json({
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-      bookings
-    });
+    res.json(data);
   } catch (err) {
-    console.error('getAllBookings error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
 };
-
 /**
  * User: get my bookings
  */
+
 exports.getMyBookings = async (req, res) => {
   try {
     const userId = req.user && req.user._id;
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     const bookings = await Booking.find({ user: userId })
       .sort({ createdAt: -1 })
-      .populate('hotel', 'name city')
-      .populate('coupon', 'code title discountType discountValue');
+      .populate("hotel", "name city")
+      .populate({
+        path: "coupon",
+        select: "plan",
+        populate: {
+          path: "plan",
+          select: "name title price validityMonths",
+        },
+      });
 
-    return res.json({ bookings });
+    const data = await Promise.all(
+      bookings.map(async (b) => {
+        const plan = b.coupon?.plan;
+
+        let benefits = [];
+
+        if (plan?._id) {
+          const coupons = await Coupon.find({ plan: plan._id }).select(
+            "code benefitName description discountType discountValue"
+          );
+
+          const map = {};
+
+          coupons.forEach((c) => {
+            const key = c.benefitName || "Benefit";
+
+            if (!map[key]) {
+              map[key] = {
+                title: key,
+                description: c.description,
+                discountType: c.discountType,
+                discountValue: c.discountValue,
+                count: 0,
+                codes: [],
+              };
+            }
+
+            map[key].count += 1;
+            map[key].codes.push(c.code);
+          });
+
+          benefits = Object.values(map);
+        }
+
+        return {
+          _id: b._id,
+          plan: plan?.title || plan?.name,
+          hotel: b.hotel,
+          qty: b.qty,
+          total: b.total,
+          status: b.status,
+          createdAt: b.createdAt,
+          benefits,
+        };
+      })
+    );
+
+    return res.json({ bookings: data });
   } catch (err) {
-    console.error('getMyBookings error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("getMyBookings error", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
+
+const groupBenefits = (coupons = []) => {
+  const map = {};
+
+  coupons.forEach((c) => {
+    const key = c.benefitName || "Benefit";
+
+    if (!map[key]) {
+      map[key] = {
+        title: key,
+        description: c.description,
+        discountType: c.discountType,
+        discountValue: c.discountValue,
+        count: 0,
+      };
+    }
+
+    map[key].count += 1;
+  });
+
+  return Object.values(map);
+};
 
 /**
  * Admin: update booking status

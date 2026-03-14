@@ -115,6 +115,7 @@ exports.initializePayment = async(req,res) => {
 
 exports.paymentStatus =  async (req, res) => {
   // try {
+  console.log("Payment status query received with params:", req.query);
     const {transactionId} = req.query;
     const authToken = await getAccessToken();
 
