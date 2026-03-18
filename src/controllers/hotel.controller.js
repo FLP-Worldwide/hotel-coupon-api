@@ -628,7 +628,6 @@ exports.listHotelsAdmin = async (req, res) => {
 //   }
 // };
 
-
 exports.updateHotel = async (req, res) => {
   try {
     const updater = req.admin;
@@ -659,39 +658,49 @@ exports.updateHotel = async (req, res) => {
       status,
     } = req.body;
 
-    // Basic fields
+    // ✅ Basic fields
     if (name !== undefined) hotel.name = name;
     if (description !== undefined) hotel.description = description;
     if (price !== undefined) hotel.price = price;
     if (status !== undefined) hotel.status = status;
     if (ownerName !== undefined) hotel.ownerName = ownerName;
 
-    // Address merge
+    // ✅ Address merge
     if (address && typeof address === "object") {
       hotel.address = { ...hotel.address, ...address };
     }
 
-    // Contact merge
+    // ✅ Contact merge (BLOCK phone + email change)
     if (contact && typeof contact === "object") {
-      hotel.contact = { ...hotel.contact, ...contact };
+      const updatedContact = { ...hotel.contact };
+
+      // allow only safe fields
+      Object.keys(contact).forEach((key) => {
+        if (key !== "phone" && key !== "email") {
+          updatedContact[key] = contact[key];
+        }
+      });
+
+      hotel.contact = updatedContact;
     }
 
+    // ❗ Ensure phone still exists
     if (!hotel.contact?.phone) {
       return res.status(400).json({ message: "Contact phone is required" });
     }
 
-    // Amenities
+    // ✅ Amenities
     if (amenities !== undefined) {
       hotel.amenities = Array.isArray(amenities) ? amenities : [];
     }
 
-    // Location
+    // ✅ Location
     if (location?.coordinates && Array.isArray(location.coordinates)) {
       const loc = buildLocation(location.coordinates);
       if (loc) hotel.location = loc;
     }
 
-    // ✅ Images (Direct URL Array)
+    // ✅ Images
     if (images !== undefined) {
       hotel.images = Array.isArray(images) ? images : [];
     }
