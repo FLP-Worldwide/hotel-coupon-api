@@ -176,6 +176,7 @@ exports.createHotel = async (req, res) => {
       images = [],
       ownerName,
       status = "active",
+      
     } = req.body;
 
     if (!name) {

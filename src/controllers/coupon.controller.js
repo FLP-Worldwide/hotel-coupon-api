@@ -70,6 +70,7 @@ exports.createPlan = async (req, res) => {
       applicableHotels,
       status,
       benefits,
+      rules,
     } = req.body;
 
     if (!name || price == null || !validityMonths) {
@@ -88,6 +89,8 @@ exports.createPlan = async (req, res) => {
       applicableHotels: applicableHotels || [],
       status: status || 'active',
       createdBy: creator._id,
+
+       rules: Array.isArray(rules) ? rules : [],
     });
 
     // 2️⃣ Create coupons from benefits
@@ -254,6 +257,7 @@ exports.updateCoupon = async (req, res) => {
       applicableHotels,
       status,
       benefits,
+      rules,
     } = req.body;
 
     if (!name || price == null || !validityMonths) {
@@ -262,6 +266,7 @@ exports.updateCoupon = async (req, res) => {
       });
     }
 
+    
     // 1️⃣ Update Plan
     const plan = await Plan.findOneAndUpdate(
       { _id: id, createdBy: creator._id },
@@ -283,6 +288,11 @@ exports.updateCoupon = async (req, res) => {
 
     // 2️⃣ Delete old coupons
     await Coupon.deleteMany({ plan: plan._id });
+
+    if (rules !== undefined) {
+      plan.rules = Array.isArray(rules) ? rules : [];
+    }
+    await plan.save();
 
     // 3️⃣ Recreate coupons
     if (Array.isArray(benefits) && benefits.length > 0) {
@@ -492,6 +502,7 @@ exports.updatePlan = async (req, res) => {
       applicableHotels,
       status,
       benefits,
+      rules,
     } = req.body;
 
     if (!name || price == null || !validityMonths) {
@@ -518,6 +529,11 @@ exports.updatePlan = async (req, res) => {
     if (!plan) {
       return res.status(404).json({ message: "Plan not found" });
     }
+
+       if (rules !== undefined) {
+      plan.rules = Array.isArray(rules) ? rules : [];
+    }
+    await plan.save();
 
     // 2️⃣ Delete existing coupons
     await Coupon.deleteMany({ plan: plan._id });

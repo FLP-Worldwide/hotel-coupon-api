@@ -12,6 +12,8 @@ const dashboardRoutes = require('./dashboard.route');
 const userRoutes = require('./user.route');
 const paymentRoutes = require('./payment');
 const agentRroutes = require('./agent.routes');
+const slidersRroutes = require('./slider.routes.js');
+const redeemRroutes = require('./redeem.routes.js');
 
 
 // Mount them under base paths
@@ -27,5 +29,7 @@ router.use('/admin/dashboard', dashboardRoutes);
 router.use('/admin/users', userRoutes);
 router.use('/phonepe', paymentRoutes);
 router.use('/admin/agents', agentRroutes);
+router.use('/admin/sliders', slidersRroutes);
+router.use('/admin/redeem', redeemRroutes);
 
 module.exports = router;

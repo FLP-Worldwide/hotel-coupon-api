@@ -44,7 +44,12 @@ const planSchema = new mongoose.Schema({
     ref: 'Admin',
     required: true,
   },
-
+  
+  rules: [
+    {
+      type: String,
+    },
+  ],
   createdAt: {
     type: Date,
     default: Date.now,

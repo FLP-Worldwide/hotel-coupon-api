@@ -50,7 +50,7 @@ const couponSchema = new mongoose.Schema({
   // 🔗 when membership purchased
   purchaseId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'MembershipPurchase',
+    ref: 'Booking',
   },
 
   // validity will start AFTER purchase
