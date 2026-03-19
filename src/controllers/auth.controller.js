@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Otp = require('../models/Otp');
 const { createAccessToken, createRefreshToken, verifyRefreshToken } = require('../utils/jwt');
 
+const sendEmailOtp = require("../utils/sendEmailOtp");
 
 const OTP_LENGTH = 6;
 const OTP_EXPIRES_MIN = 5; // minutes
@@ -19,6 +20,56 @@ function hashOtp(otp) {
   const salt = bcrypt.genSaltSync(8);
   return bcrypt.hashSync(otp, salt);
 }
+
+exports.sendEmailOtpController = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const otp = generateOtp();
+    const otpHash = hashOtp(otp);
+    const expiresAt = new Date(Date.now() + OTP_EXPIRES_MIN * 60 * 1000);
+
+    // ✅ Save OTP (only email)
+    await Otp.create({
+      email: normalizedEmail,
+      otpHash,
+      expiresAt,
+    });
+
+    // ✅ Find or create user
+    let user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      user = await User.create({
+        email: normalizedEmail,
+        isVerified: false,
+      });
+    }
+
+    // ✅ Send Email
+    await sendEmailOtp(normalizedEmail, otp);
+
+    return res.json({
+      message: "Email OTP sent",
+      otp, // ⚠️ remove in production
+    });
+
+  } catch (err) {
+    console.error("Email OTP Error:", err);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: err.message,
+    });
+  }
+};
+
+
 exports.sendOtp = async (req, res) => {
   try {
     const { phone, email } = req.body;
@@ -58,13 +109,14 @@ exports.sendOtp = async (req, res) => {
 
 exports.verifyOtp = async (req, res) => {
   try {
-    const { phone, otp } = req.body;
-    if (!phone || !otp) return res.status(400).json({ message: 'Phone and OTP are required' });
+    const { email, otp } = req.body;
+ 
+    if (!email || !otp) return res.status(400).json({ message: 'Email and OTP are required' });
 
-    const normalizedPhone = phone.trim();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const record = await Otp.findOne({ phone: normalizedPhone }).sort({ createdAt: -1 });
-    if (!record) return res.status(400).json({ message: 'No OTP request found for this phone' });
+    const record = await Otp.findOne({ email: normalizedEmail }).sort({ createdAt: -1 });
+    if (!record) return res.status(400).json({ message: 'No OTP request found for this email' });
 
     if (record.attempts >= MAX_VERIFY_ATTEMPTS) {
       return res.status(429).json({ message: 'Too many attempts. Request a new OTP.' });
@@ -82,16 +134,16 @@ exports.verifyOtp = async (req, res) => {
     }
 
     // OTP matched → verify user
-    let user = await User.findOne({ phone: normalizedPhone });
+    let user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      user = await User.create({ phone: normalizedPhone, email: record.email, isVerified: true });
+      user = await User.create({ email: normalizedEmail, isVerified: true });
     } else {
       user.isVerified = true;
       await user.save();
     }
 
     // cleanup OTP
-    await Otp.deleteMany({ phone: normalizedPhone });
+    await Otp.deleteMany({ email: normalizedEmail });
 
     // issue tokens
     const payload = { sub: user._id.toString() };

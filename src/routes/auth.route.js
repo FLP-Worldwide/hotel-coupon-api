@@ -6,7 +6,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 // request OTP
 // body: { identifier: "user@example.com" or "+911234567890", via: "email" | "sms" }
 router.post('/send-otp', authCtrl.sendOtp);
-
+router.post("/send-email-otp", authCtrl.sendEmailOtpController);
 // verify OTP
 // body: { identifier, otp }
 router.post('/verify-otp', authCtrl.verifyOtp);
