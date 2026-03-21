@@ -6,7 +6,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const sendEmailOtp = async (email, otp) => {
   try {
     await resend.emails.send({
-      from: "onboarding@resend.dev",
+      from: "no-reply@notionadvertising.com",
       to: email,
       subject: "Your OTP Code",
       html: `
