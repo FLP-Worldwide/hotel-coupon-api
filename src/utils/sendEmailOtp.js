@@ -1,35 +1,24 @@
-const nodemailer = require("nodemailer");
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sendEmailOtp = async (email, otp) => {
   try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail", // or use SMTP
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS, // app password
-      },
+    await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: email,
+      subject: 'Your OTP Code',
+      html: `
+        <h2>Your OTP is: ${otp}</h2>
+        <p>Valid for 5 minutes</p>
+      `,
     });
 
-    const mailOptions = {
-      from: `"Your App" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: "Your OTP Code",
-      html: `
-        <div style="font-family: Arial; padding: 20px">
-          <h2>🔐 Your OTP Code</h2>
-          <p>Your verification code is:</p>
-          <h1 style="letter-spacing: 4px;">${otp}</h1>
-          <p>This OTP will expire in ${process.env.OTP_EXPIRES_MIN || 5} minutes.</p>
-        </div>
-      `,
-    };
-
-    await transporter.sendMail(mailOptions);
-    console.log(`OTP sent to email: ${email}`);
+    console.log("Email sent via Resend");
   } catch (error) {
-    console.error("Email send error:", error);
+    console.error("Resend error:", error);
     throw new Error("Failed to send email OTP");
   }
 };
 
-module.exports = sendEmailOtp;
+export default sendEmailOtp;
